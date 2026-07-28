@@ -9,6 +9,12 @@ import { eq } from "drizzle-orm";
 import { dbLocal, dbRemote } from "@/core/db";
 import { objects, parameterValues } from "@/core/db/schema";
 
+import {
+  haalAlleParameterDefinitiesOp,
+  vernieuwParameterWaardeMetHistorie,
+} from "@/core/db/repository";
+
+
 export async function voegObjectToe(formData: FormData) {
   const label = formData.get("label") as string;
   if (!label) return;
@@ -80,7 +86,135 @@ export async function getObjectDetailsAction(objectId: string) {
   }
 }
 
-// 1. Basisgegevens van een object updaten
+// 3. Bestaande parameterwaarde bewerken (accepteert FormData)
+export async function updateParameterWaardeAction(formData: FormData): Promise<void> {
+  const valueId = formData.get("valueId") as string;
+  const newValue = formData.get("newValue") as string;
+
+  if (!valueId) return;
+
+  const dbs = [dbLocal, dbRemote].filter(
+    (db): db is NonNullable<typeof db> => db !== null
+  );
+
+  for (const dbClient of dbs) {
+    await dbClient
+      .update(parameterValues)
+      .set({ value: newValue })
+      .where(eq(parameterValues.id, valueId));
+  }
+
+  revalidatePath("/basismodule");
+}
+
+// 1. Haal alle parameterdefinities op voor de dropdown
+export async function getParameterDefinitiesAction() {
+  try {
+    const definities = await haalAlleParameterDefinitiesOp();
+    return { success: true, data: definities };
+  } catch (error: any) {
+    return { success: false, error: error.message, data: [] };
+  }
+}
+
+// 2. Nieuwe parameterdefinitie (stamgegeven) aanmaken
+export async function maakNieuweParameterDefinitieAction(data: {
+  label: string;
+  code: string;
+  dataType: string;
+  unit?: string;
+}) {
+  try {
+    const newId = await maakNieuwItem("parameter", {
+      label: data.label,
+      code: data.code || data.label.toLowerCase().replace(/\s+/g, "_"),
+      dataType: data.dataType || "string",
+      unit: data.unit || null,
+    });
+
+    revalidatePath("/basismodule");
+    return { success: true, id: newId };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 3. Parameterwaarde toevoegen aan een object
+export async function voegParameterWaardeToeAction(formData: FormData): Promise<void> {
+  const objectId = formData.get("objectId") as string;
+  const parameterId = formData.get("parameterId") as string;
+  const value = formData.get("value") as string;
+
+  if (!objectId || !parameterId || !value) return;
+
+  await maakNieuwItem("parameter_value", {
+    targetId: objectId,
+    targetType: "object",
+    parameterId,
+    value,
+  });
+
+  revalidatePath("/basismodule");
+}
+
+// 4. Parameterwaarde corrigeren (Rechtstreekse mutatie zonder historie-record)
+export async function corrigeerParameterWaardeAction(
+  valueId: string,
+  newValue: string
+) {
+  try {
+    const dbs = [dbLocal, dbRemote].filter(
+      (db): db is NonNullable<typeof db> => db !== null
+    );
+
+    for (const dbClient of dbs) {
+      await dbClient
+        .update(parameterValues)
+        .set({ value: newValue })
+        .where(eq(parameterValues.id, valueId));
+    }
+
+    revalidatePath("/basismodule");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 5. Parameterwaarde vernieuwen (Met historisch opvolg-record)
+export async function vernieuwParameterWaardeAction(
+  oudeValueId: string,
+  objectId: string,
+  parameterId: string,
+  nieuweWaarde: string
+) {
+  try {
+    await vernieuwParameterWaardeMetHistorie(
+      oudeValueId,
+      objectId,
+      parameterId,
+      nieuweWaarde
+    );
+
+    revalidatePath("/basismodule");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 6. Parameterwaarde uitschakelen / ongeldig maken
+export async function deactiveerParameterWaardeAction(valueId: string) {
+  try {
+    await maakItemOngeldig("parameter_value", valueId);
+    revalidatePath("/basismodule");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 7. Basisgegevens van het object updaten
 export async function updateObjectBasisAction(
   objectId: string,
   label: string,
@@ -110,41 +244,19 @@ export async function updateObjectBasisAction(
   }
 }
 
-// 2. Parameterwaarde toevoegen aan een object (accepteert FormData)
-export async function voegParameterWaardeToeAction(formData: FormData): Promise<void> {
-  const objectId = formData.get("objectId") as string;
-  const parameterId = formData.get("parameterId") as string;
-  const value = formData.get("value") as string;
+export async function maakNieuwRelatieTypeAction(label: string) {
+  try {
+    if (!label || label.trim() === "") {
+      return { success: false, error: "Label mag niet leeg zijn." };
+    }
 
-  if (!objectId || !parameterId || !value) return;
+    const newId = await maakNieuwItem("relation", {
+      label: label.trim(),
+    });
 
-  await maakNieuwItem("parameter_value", {
-    targetId: objectId,
-    targetType: "object",
-    parameterId,
-    value,
-  });
-
-  revalidatePath("/basismodule");
-}
-
-// 3. Bestaande parameterwaarde bewerken (accepteert FormData)
-export async function updateParameterWaardeAction(formData: FormData): Promise<void> {
-  const valueId = formData.get("valueId") as string;
-  const newValue = formData.get("newValue") as string;
-
-  if (!valueId) return;
-
-  const dbs = [dbLocal, dbRemote].filter(
-    (db): db is NonNullable<typeof db> => db !== null
-  );
-
-  for (const dbClient of dbs) {
-    await dbClient
-      .update(parameterValues)
-      .set({ value: newValue })
-      .where(eq(parameterValues.id, valueId));
+    revalidatePath("/basismodule");
+    return { success: true, id: newId };
+  } catch (error: any) {
+    return { success: false, error: error.message };
   }
-
-  revalidatePath("/basismodule");
 }

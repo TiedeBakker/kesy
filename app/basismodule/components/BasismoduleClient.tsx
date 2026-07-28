@@ -1,10 +1,16 @@
+// app/basismodule/BasismoduleClient.tsx
 "use client";
 
 import React, { useState } from "react";
 import Link from "next/link";
 import { ObjectZoeker } from "../ObjectZoeker";
 import ObjectDetailPanel from "./ObjectDetailPanel";
-import { voegObjectToeAction, voegRelatieToe, getObjectDetailsAction } from "../actions";
+import { 
+  voegObjectToeAction, 
+  voegRelatieToe, 
+  getObjectDetailsAction,
+  maakNieuwRelatieTypeAction 
+} from "../actions";
 import { ObjectDetails } from "@/core/db/repository";
 
 interface BasismoduleClientProps {
@@ -25,6 +31,15 @@ export default function BasismoduleClient({
   const [selectedDetails, setSelectedDetails] = useState<ObjectDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
+  // State voor nieuw relatietype inline formulier
+  const [isCreatingRelType, setIsCreatingRelType] = useState(false);
+  const [nieuwTypeLabel, setNieuwTypeLabel] = useState("");
+  const [selectedRelTypeId, setSelectedRelTypeId] = useState<string>("");
+
+  // State voor vertrouwelijk vinkje (onthoudt de instelling tussen toevoegingen)
+  const [isConfidential, setIsConfidential] = useState(false);
+  const [nieuwObjectLabel, setNieuwObjectLabel] = useState("");
+
   // Functie om details in het zijpaneel te openen
   const handleSelectObject = async (objectId: string) => {
     setIsLoadingDetails(true);
@@ -35,6 +50,36 @@ export default function BasismoduleClient({
       console.error(result.error);
     }
     setIsLoadingDetails(false);
+  };
+
+  // Handler voor het aanmaken van een nieuw RelatieType
+  const handleCreateRelatieType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nieuwTypeLabel.trim()) return;
+
+    const res = await maakNieuwRelatieTypeAction(nieuwTypeLabel);
+    if (res.success && res.id) {
+      setSelectedRelTypeId(res.id);
+      setNieuwTypeLabel("");
+      setIsCreatingRelType(false);
+    } else {
+      alert("Fout bij aanmaken relatietype: " + res.error);
+    }
+  };
+
+  // Handler voor het aanmaken van een nieuw Object
+  const handleCreateObject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nieuwObjectLabel.trim()) return;
+
+    const formData = new FormData();
+    formData.append("label", nieuwObjectLabel);
+    if (isConfidential) {
+      formData.append("isConfidential", "on");
+    }
+
+    await voegObjectToeAction(formData);
+    setNieuwObjectLabel(""); // Alleen de tekstinvoer leegmaken, isConfidential blijft behouden!
   };
 
   return (
@@ -69,7 +114,7 @@ export default function BasismoduleClient({
           <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
             2. Nieuw Object Aanmaken:
           </label>
-          <form action={voegObjectToeAction} className="flex flex-col gap-3">
+          <form onSubmit={handleCreateObject} className="flex flex-col gap-3">
             <div>
               <input
                 type="text"
@@ -77,6 +122,8 @@ export default function BasismoduleClient({
                 name="label"
                 required
                 placeholder="bijv. Server A of Geheim Dossier"
+                value={nieuwObjectLabel}
+                onChange={(e) => setNieuwObjectLabel(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
               />
             </div>
@@ -87,6 +134,8 @@ export default function BasismoduleClient({
                   type="checkbox"
                   id="isConfidential"
                   name="isConfidential"
+                  checked={isConfidential}
+                  onChange={(e) => setIsConfidential(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-0"
                 />
                 Vertrouwelijk (lokaal)
@@ -158,37 +207,74 @@ export default function BasismoduleClient({
 
             {/* FORMULIER: KOPPEL AAN ANDER OBJECT */}
             <div className="border-t border-slate-800 pt-3 space-y-2">
-              <h4 className="text-xs font-semibold text-slate-300">Nieuwe Uitgaande Relatie Leggen:</h4>
-              <form action={voegRelatieToe} className="space-y-2">
-                <input type="hidden" name="sourceId" value={centraalObject.id} />
-
-                <select
-                  name="relationId"
-                  className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                  required
-                >
-                  {relatieTypen.map((r: any) => (
-                    <option key={r.id} value={r.id}>
-                      Type: {r.label}
-                    </option>
-                  ))}
-                </select>
-
-                <ObjectZoeker
-                  initieleObjecten={alleObjecten}
-                  excludeId={centraalObject.id}
-                  mode="select"
-                  inputName="targetId"
-                  placeholder="Zoek doel (target) object..."
-                />
-
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs font-semibold text-slate-300">Nieuwe Uitgaande Relatie Leggen:</h4>
                 <button
-                  type="submit"
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 text-xs py-1.5 rounded font-medium transition-colors"
+                  type="button"
+                  onClick={() => setIsCreatingRelType(!isCreatingRelType)}
+                  className="text-[11px] text-emerald-400 hover:underline"
                 >
-                  + Koppel Relatie
+                  {isCreatingRelType ? "Kies bestaand type" : "+ Nieuw Type"}
                 </button>
-              </form>
+              </div>
+
+              {/* INLINE FORMULIER: NIEUW RELATIETYPE AANMAKEN */}
+              {isCreatingRelType ? (
+                <form onSubmit={handleCreateRelatieType} className="p-2 bg-slate-950 border border-slate-800 rounded space-y-2">
+                  <label className="text-[10px] text-slate-400 block">Nieuw Relatietype Label</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="bijv. stuurt aan, is onderdeel van"
+                      value={nieuwTypeLabel}
+                      onChange={(e) => setNieuwTypeLabel(e.target.value)}
+                      required
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-2.5 py-1 rounded font-semibold"
+                    >
+                      Opslaan
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* REGULIER RELATIE FORMULIER */
+                <form action={voegRelatieToe} className="space-y-2">
+                  <input type="hidden" name="sourceId" value={centraalObject.id} />
+
+                  <select
+                    name="relationId"
+                    value={selectedRelTypeId}
+                    onChange={(e) => setSelectedRelTypeId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                    required
+                  >
+                    <option value="">-- Kies Relatietype --</option>
+                    {relatieTypen.map((r: any) => (
+                      <option key={r.id} value={r.id}>
+                        Type: {r.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <ObjectZoeker
+                    initieleObjecten={alleObjecten}
+                    excludeId={centraalObject.id}
+                    mode="select"
+                    inputName="targetId"
+                    placeholder="Zoek doel (target) object..."
+                  />
+
+                  <button
+                    type="submit"
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 text-xs py-1.5 rounded font-medium transition-colors"
+                  >
+                    + Koppel Relatie
+                  </button>
+                </form>
+              )}
             </div>
           </div>
 
