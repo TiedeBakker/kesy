@@ -34,7 +34,7 @@ export async function maakNieuwItem(type: EntityType, data: Record<string, any>)
   // Stamgegevens (relations & parameters) schrijven we naar beide databases
   if (type === "relation" || type === "parameter") {
     if (dbRemote) await insertIntoTable(dbRemote, type, baseData);
-    await insertIntoTable(dbLocal, type, baseData);
+    if (dbLocal) await insertIntoTable(dbLocal, type, baseData);
     return newId;
   }
 
@@ -47,11 +47,14 @@ export async function maakNieuwItem(type: EntityType, data: Record<string, any>)
     isConfidential,
   };
 
-  await insertIntoTable(targetDb, type, dataWithTime);
+  if (targetDb) {
+    await insertIntoTable(targetDb, type, dataWithTime);
+  }
   return newId;
 }
 
 async function insertIntoTable(targetDb: any, type: EntityType, baseData: any) {
+  if (!targetDb) return;
   switch (type) {
     case "object":
       await targetDb.insert(objects).values(baseData as any);
@@ -79,13 +82,13 @@ export async function voegRelatieToeMetBeveiliging(
   targetId: string,
   relationId: string
 ) {
-  // 1. Haal de objecten expliciet op uit de LOKALE database
-  const sourceLocal = (
-    await dbLocal.select().from(objects).where(eq(objects.id, sourceId))
-  )[0];
-  const targetLocal = (
-    await dbLocal.select().from(objects).where(eq(objects.id, targetId))
-  )[0];
+  // 1. Haal de objecten expliciet op uit de LOKALE database (indien aanwezig)
+  const sourceLocal = dbLocal
+    ? (await dbLocal.select().from(objects).where(eq(objects.id, sourceId)))[0]
+    : null;
+  const targetLocal = dbLocal
+    ? (await dbLocal.select().from(objects).where(eq(objects.id, targetId)))[0]
+    : null;
 
   // 2. Haal de objecten op uit de REMOTE database (als aanwezig)
   let sourceRemote = null;
@@ -162,7 +165,10 @@ export async function maakItemOngeldig(type: EntityType, id: string) {
 // 4. HAAL CENTRAAL OBJECT OP
 //
 export async function haalObjectOp(objectId: string) {
-  let [obj] = await dbLocal.select().from(objects).where(eq(objects.id, objectId));
+  let obj = null;
+  if (dbLocal) {
+    [obj] = await dbLocal.select().from(objects).where(eq(objects.id, objectId));
+  }
 
   if (!obj && dbRemote) {
     [obj] = await dbRemote.select().from(objects).where(eq(objects.id, objectId));
@@ -172,11 +178,13 @@ export async function haalObjectOp(objectId: string) {
 
   const [paramsLocal, paramsRemote] = await Promise.all([
     dbLocal
-      .select()
-      .from(parameterValues)
-      .where(
-        sql`${parameterValues.targetId} = ${objectId} AND ${parameterValues.targetType} = 'object'`
-      ),
+      ? dbLocal
+          .select()
+          .from(parameterValues)
+          .where(
+            sql`${parameterValues.targetId} = ${objectId} AND ${parameterValues.targetType} = 'object'`
+          )
+      : Promise.resolve([]),
     dbRemote
       ? dbRemote
           .select()
@@ -204,8 +212,12 @@ export async function haalAlleObjectenOp() {
   }
 
   const [lokaleObjecten, remoteObjecten] = await Promise.all([
-    dbLocal.select().from(objects).where(sql`${objects.validTo} IS NULL`),
-    dbRemote ? dbRemote.select().from(objects).where(sql`${objects.validTo} IS NULL`) : Promise.resolve([]),
+    dbLocal
+      ? dbLocal.select().from(objects).where(sql`${objects.validTo} IS NULL`)
+      : Promise.resolve([]),
+    dbRemote
+      ? dbRemote.select().from(objects).where(sql`${objects.validTo} IS NULL`)
+      : Promise.resolve([]),
   ]);
 
   const objectenMap = new Map();
@@ -243,7 +255,7 @@ export async function haalDirecteIngaandeRelatiesOp(targetId: string): Promise<R
     WHERE rv.target_id = ${targetId} AND rv.valid_to IS NULL
   `;
 
-  const localPromise = dbLocal.all<RelatieBoomItem>(query);
+  const localPromise = dbLocal ? dbLocal.all<RelatieBoomItem>(query) : Promise.resolve([]);
   const remotePromise = dbRemote ? dbRemote.all<RelatieBoomItem>(query) : Promise.resolve([]);
 
   const [localRows, remoteRows] = await Promise.all([localPromise, remotePromise]);
@@ -272,7 +284,7 @@ export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<
     WHERE rv.source_id = ${sourceId} AND rv.valid_to IS NULL
   `;
 
-  const localPromise = dbLocal.all<RelatieBoomItem>(query);
+  const localPromise = dbLocal ? dbLocal.all<RelatieBoomItem>(query) : Promise.resolve([]);
   const remotePromise = dbRemote ? dbRemote.all<RelatieBoomItem>(query) : Promise.resolve([]);
 
   const [localRows, remoteRows] = await Promise.all([localPromise, remotePromise]);
@@ -380,6 +392,8 @@ async function verzamelUitgaand(
 //
 export async function haalRelatieTypenOp() {
   const targetDb = dbRemote || dbLocal;
+  if (!targetDb) return [];
+
   let typen = await targetDb.select().from(relations);
 
   if (typen.length === 0) {

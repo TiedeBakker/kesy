@@ -1,18 +1,11 @@
+// core/db/index.ts
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "./schema";
 
-// 1. Lokale SQLite Database (alleen beschikbaar / gebruikt op PC)
-const localClient = createClient({
-  url: process.env.DATABASE_URL || "file:local.db",
-});
+const isVercel = process.env.VERCEL === "1";
 
-// Zorg dat SQLite FK checks uitschakelt op de verbinding
-localClient.execute("PRAGMA foreign_keys = OFF;");
-
-export const dbLocal = drizzle(localClient, { schema });
-
-// 2. Turso Cloud Database (beschikbaar op PC én Vercel)
+// 1. Turso Cloud Database
 const remoteUrl = process.env.TURSO_DATABASE_URL;
 const remoteAuthToken = process.env.TURSO_AUTH_TOKEN;
 
@@ -22,5 +15,23 @@ const remoteClient = remoteUrl
 
 export const dbRemote = remoteClient ? drizzle(remoteClient, { schema }) : null;
 
-// Hulp-identificatie: Draaien we op Vercel of lokaal op de PC?
-export const isCloudOnly = process.env.VERCEL === "1" || !process.env.DATABASE_URL;
+// 2. Lokale SQLite Database
+const localUrl = process.env.DATABASE_URL;
+
+const localClient = !isVercel && localUrl
+  ? createClient({ url: localUrl })
+  : !isVercel
+  ? createClient({ url: "file:local.db" })
+  : null;
+
+// Op Vercel of als localClient afwezig is, valt dbLocal terug op dbRemote
+const rawLocal = isVercel
+  ? dbRemote
+  : localClient
+  ? drizzle(localClient, { schema })
+  : dbRemote;
+
+// Type assertion: dbLocal is minimaal gelijk aan dbRemote of local DB
+export const dbLocal = rawLocal!;
+
+export const isCloudOnly = isVercel || !localUrl;
