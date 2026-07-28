@@ -408,3 +408,65 @@ export async function haalRelatieTypenOp() {
 
   return typen;
 }
+
+export interface ObjectDetails {
+  object: {
+    id: string;
+    label: string;
+    type?: string;
+    isConfidential?: boolean;
+    validFrom?: string;
+  };
+  ingaandeRelaties: RelatieBoomItem[];
+  uitgaandeRelaties: RelatieBoomItem[];
+  parameterWaarden: {
+    id: string;
+    parameterId: string;
+    parameterLabel?: string;
+    value: string;
+    validFrom?: string;
+    isConfidential?: boolean;
+  }[];
+}
+
+export async function haalObjectDetailsOp(objectId: string): Promise<ObjectDetails | null> {
+  // 1. Haal basis object op
+  const obj = await haalObjectOp(objectId);
+  if (!obj) return null;
+
+  // 2. Haal ingaande en uitgaande relaties op
+  const [ingaand, uitgaand] = await Promise.all([
+    haalDirecteIngaandeRelatiesOp(objectId),
+    haalDirecteUitgaandeRelatiesOp(objectId),
+  ]);
+
+  // 3. Haal actieve parameterwaarden op inclusief de parameternamen
+  const paramQuery = sql`
+    SELECT 
+      pv.id,
+      pv.parameter_id as parameterId,
+      p.label as parameterLabel,
+      pv.value,
+      pv.valid_from as validFrom,
+      pv.is_confidential as isConfidential
+    FROM ${parameterValues} pv
+    LEFT JOIN ${parameters} p ON pv.parameter_id = p.id
+    WHERE pv.target_id = ${objectId} 
+      AND pv.target_type = 'object'
+      AND pv.valid_to IS NULL
+  `;
+
+  const localParams = dbLocal ? await dbLocal.all<any>(paramQuery) : [];
+  const remoteParams = dbRemote ? await dbRemote.all<any>(paramQuery) : [];
+
+  // Samenvoegen en ontdubbelen op id
+  const paramMap = new Map();
+  [...remoteParams, ...localParams].forEach((p) => paramMap.set(p.id, p));
+
+  return {
+    object: obj,
+    ingaandeRelaties: ingaand,
+    uitgaandeRelaties: uitgaand,
+    parameterWaarden: Array.from(paramMap.values()),
+  };
+}

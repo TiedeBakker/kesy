@@ -4,6 +4,10 @@
 import { maakNieuwItem, maakItemOngeldig } from "@/core/db/repository";
 import { revalidatePath } from "next/cache";
 import { voegRelatieToeMetBeveiliging } from "@/core/db/repository";
+import { haalObjectDetailsOp } from "@/core/db/repository";
+import { eq } from "drizzle-orm";
+import { dbLocal, dbRemote } from "@/core/db";
+import { objects, parameterValues } from "@/core/db/schema";
 
 export async function voegObjectToe(formData: FormData) {
   const label = formData.get("label") as string;
@@ -65,22 +69,82 @@ export async function zoekObjectenAction(zoekterm: string) {
     .filter((obj) => obj.label.toLowerCase().includes(schoneTerm))
     .slice(0, 20); // Beperk strikt tot 20 items voor de DOM
 }
-// //
-// // ZOEKEN IN OBJECTEN MET LIMIT 20 (Voor grote datasets)
-// //
-// export async function zoekObjectenAction(zoekterm: string) {
-//   const schoneZoekterm = zoekterm.trim();
-  
-//   if (!schoneZoekterm) {
-//     // Geef de eerste 20 objecten terug als zoekterm leeg is
-//     const alle = await haalAlleObjectenOp();
-//     return alle.slice(0, 20);
-//   }
 
-//   // Gebruik de bestaande ophaalfunctie en filter op de client of pas SQL LIKE toe
-//   const alleObjecten = await haalAlleObjectenOp();
-  
-//   return alleObjecten
-//     .filter((obj) => obj.label.toLowerCase().includes(schoneZoekterm.toLowerCase()))
-//     .slice(0, 20); // Beperk strikt tot 20 items voor de DOM
-// }
+export async function getObjectDetailsAction(objectId: string) {
+  try {
+    const details = await haalObjectDetailsOp(objectId);
+    return { success: true, data: details };
+  } catch (error: any) {
+    console.error("Fout bij ophalen objectdetails:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+// 1. Basisgegevens van een object updaten
+export async function updateObjectBasisAction(
+  objectId: string,
+  label: string,
+  validFrom: string,
+  validTo?: string | null
+) {
+  try {
+    const dbs = [dbLocal, dbRemote].filter(
+      (db): db is NonNullable<typeof db> => db !== null
+    );
+
+    for (const dbClient of dbs) {
+      await dbClient
+        .update(objects)
+        .set({
+          label,
+          validFrom: validFrom ? new Date(validFrom).toISOString() : undefined,
+          validTo: validTo ? new Date(validTo).toISOString() : null,
+        })
+        .where(eq(objects.id, objectId));
+    }
+
+    revalidatePath("/basismodule");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+// 2. Parameterwaarde toevoegen aan een object (accepteert FormData)
+export async function voegParameterWaardeToeAction(formData: FormData): Promise<void> {
+  const objectId = formData.get("objectId") as string;
+  const parameterId = formData.get("parameterId") as string;
+  const value = formData.get("value") as string;
+
+  if (!objectId || !parameterId || !value) return;
+
+  await maakNieuwItem("parameter_value", {
+    targetId: objectId,
+    targetType: "object",
+    parameterId,
+    value,
+  });
+
+  revalidatePath("/basismodule");
+}
+
+// 3. Bestaande parameterwaarde bewerken (accepteert FormData)
+export async function updateParameterWaardeAction(formData: FormData): Promise<void> {
+  const valueId = formData.get("valueId") as string;
+  const newValue = formData.get("newValue") as string;
+
+  if (!valueId) return;
+
+  const dbs = [dbLocal, dbRemote].filter(
+    (db): db is NonNullable<typeof db> => db !== null
+  );
+
+  for (const dbClient of dbs) {
+    await dbClient
+      .update(parameterValues)
+      .set({ value: newValue })
+      .where(eq(parameterValues.id, valueId));
+  }
+
+  revalidatePath("/basismodule");
+}
