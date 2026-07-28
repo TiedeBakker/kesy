@@ -50,6 +50,7 @@ export async function maakNieuwItem(type: EntityType, data: Record<string, any>)
   await insertIntoTable(targetDb, type, dataWithTime);
   return newId;
 }
+
 async function insertIntoTable(targetDb: any, type: EntityType, baseData: any) {
   switch (type) {
     case "object":
@@ -71,13 +72,7 @@ async function insertIntoTable(targetDb: any, type: EntityType, baseData: any) {
 }
 
 //
-// 2. RELATIE AANMAKEN MET AUTOMATISCHE BEVEILIGINGSREGEL:
-// Relatie is PAS publiek als BEIDE gekoppelde objecten publiek zijn!
-//
-// RELATIE AANMAKEN MET WATERDICHTE BEVEILIGINGSREGEL
-//
-//
-// RELATIE AANMAKEN MET DEBUG LOGGING EN WATERDICHTE BEVEILIGINGSCHECK
+// 2. RELATIE AANMAKEN MET AUTOMATISCHE BEVEILIGINGSREGEL
 //
 export async function voegRelatieToeMetBeveiliging(
   sourceId: string,
@@ -137,6 +132,7 @@ export async function voegRelatieToeMetBeveiliging(
     isConfidential: moetLokaalOpgeslagenWorden,
   });
 }
+
 //
 // 3. ITEM INVALIDE VERKLAREN
 //
@@ -221,102 +217,166 @@ export async function haalAlleObjectenOp() {
 //
 // 6. HAAL BOOM OP
 //
-export async function haalObjectenBoomOp(rootObjectId: string) {
-  const queryUitgaand = sql`
-    WITH RECURSIVE tree AS (
-      SELECT 
-        rv.id AS relation_value_id,
-        rv.source_id,
-        rv.target_id,
-        rv.relation_id,
-        1 AS depth
-      FROM relation_values rv
-      WHERE rv.source_id = ${rootObjectId} AND rv.valid_to IS NULL
-
-      UNION ALL
-
-      SELECT 
-        rv.id AS relation_value_id,
-        rv.source_id,
-        rv.target_id,
-        rv.relation_id,
-        t.depth + 1
-      FROM relation_values rv
-      INNER JOIN tree t ON rv.source_id = t.target_id
-      WHERE rv.valid_to IS NULL AND t.depth < 5
-    )
-    SELECT 
-      t.*, 
-      o.label AS target_label 
-    FROM tree t
-    LEFT JOIN objects o ON t.target_id = o.id;
-  `;
-
-  const queryIngaand = sql`
-    WITH RECURSIVE tree AS (
-      SELECT 
-        rv.id AS relation_value_id,
-        rv.source_id,
-        rv.target_id,
-        rv.relation_id,
-        1 AS depth
-      FROM relation_values rv
-      WHERE rv.target_id = ${rootObjectId} AND rv.valid_to IS NULL
-
-      UNION ALL
-
-      SELECT 
-        rv.id AS relation_value_id,
-        rv.source_id,
-        rv.target_id,
-        rv.relation_id,
-        t.depth + 1
-      FROM relation_values rv
-      INNER JOIN tree t ON rv.target_id = t.source_id
-      WHERE rv.valid_to IS NULL AND t.depth < 5
-    )
-    SELECT 
-      t.*, 
-      o.label AS source_label 
-    FROM tree t
-    LEFT JOIN objects o ON t.source_id = o.id;
-  `;
-
-  const [uitgaandLocal, ingaandLocal] = await Promise.all([
-    dbLocal.run(queryUitgaand),
-    dbLocal.run(queryIngaand),
-  ]);
-
-  let uitgaandRemoteRows: any[] = [];
-  let ingaandRemoteRows: any[] = [];
-
-  if (dbRemote) {
-    const [uitgaandRemote, ingaandRemote] = await Promise.all([
-      dbRemote.run(queryUitgaand),
-      dbRemote.run(queryIngaand),
-    ]);
-    uitgaandRemoteRows = uitgaandRemote.rows || [];
-    ingaandRemoteRows = ingaandRemote.rows || [];
-  }
-
-  const uitgaandMap = new Map();
-  [...(uitgaandLocal.rows || []), ...uitgaandRemoteRows].forEach((r: any) =>
-    uitgaandMap.set(r.relation_value_id, r)
-  );
-
-  const ingaandMap = new Map();
-  [...(ingaandLocal.rows || []), ...ingaandRemoteRows].forEach((r: any) =>
-    ingaandMap.set(r.relation_value_id, r)
-  );
-
-  return {
-    uitgaand: Array.from(uitgaandMap.values()),
-    ingaand: Array.from(ingaandMap.values()),
-  };
+export interface RelatieBoomItem {
+  relation_value_id: string;
+  source_id: string;
+  target_id: string;
+  relation_id: string;
+  source_label?: string;
+  target_label?: string;
+  depth?: number;
 }
 
 //
-// 7. HAAL RELATIETYPEN OP (Automatische seeding van standaard 'gerelateerd aan')
+// HELPERFUNCTIES: DIRECTE RELATIES OPHALEN
+//
+export async function haalDirecteIngaandeRelatiesOp(targetId: string): Promise<RelatieBoomItem[]> {
+  const query = sql`
+    SELECT 
+      rv.id as relation_value_id,
+      rv.source_id,
+      rv.target_id,
+      rv.relation_id,
+      s.label as source_label
+    FROM ${relationValues} rv
+    LEFT JOIN ${objects} s ON rv.source_id = s.id
+    WHERE rv.target_id = ${targetId} AND rv.valid_to IS NULL
+  `;
+
+  const localPromise = dbLocal.all<RelatieBoomItem>(query);
+  const remotePromise = dbRemote ? dbRemote.all<RelatieBoomItem>(query) : Promise.resolve([]);
+
+  const [localRows, remoteRows] = await Promise.all([localPromise, remotePromise]);
+  const gecombineerd = [...remoteRows, ...localRows];
+
+  const uniekMap = new Map<string, RelatieBoomItem>();
+  for (const item of gecombineerd) {
+    if (!uniekMap.has(item.relation_value_id)) {
+      uniekMap.set(item.relation_value_id, item);
+    }
+  }
+
+  return Array.from(uniekMap.values());
+}
+
+export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<RelatieBoomItem[]> {
+  const query = sql`
+    SELECT 
+      rv.id as relation_value_id,
+      rv.source_id,
+      rv.target_id,
+      rv.relation_id,
+      t.label as target_label
+    FROM ${relationValues} rv
+    LEFT JOIN ${objects} t ON rv.target_id = t.id
+    WHERE rv.source_id = ${sourceId} AND rv.valid_to IS NULL
+  `;
+
+  const localPromise = dbLocal.all<RelatieBoomItem>(query);
+  const remotePromise = dbRemote ? dbRemote.all<RelatieBoomItem>(query) : Promise.resolve([]);
+
+  const [localRows, remoteRows] = await Promise.all([localPromise, remotePromise]);
+  const gecombineerd = [...remoteRows, ...localRows];
+
+  const uniekMap = new Map<string, RelatieBoomItem>();
+  for (const item of gecombineerd) {
+    if (!uniekMap.has(item.relation_value_id)) {
+      uniekMap.set(item.relation_value_id, item);
+    }
+  }
+
+  return Array.from(uniekMap.values());
+}
+
+//
+// RECURSIEVE BOOM OPHALEN MET VERTAKKINGS-STOP EN CIRKEL-DETECTIE
+//
+export async function haalObjectenBoomOp(startId: string) {
+  const visitedIngaand = new Set<string>([startId]);
+  const visitedUitgaand = new Set<string>([startId]);
+
+  const ingaandResultaat: RelatieBoomItem[] = [];
+  await verzamelIngaand(startId, 1, visitedIngaand, ingaandResultaat);
+
+  const uitgaandResultaat: RelatieBoomItem[] = [];
+  await verzamelUitgaand(startId, 1, visitedUitgaand, uitgaandResultaat);
+
+  return {
+    ingaand: ingaandResultaat,
+    uitgaand: uitgaandResultaat,
+  };
+}
+
+async function verzamelIngaand(
+  huidigId: string,
+  diepte: number,
+  visited: Set<string>,
+  resultaat: RelatieBoomItem[],
+  maxDiepte: number = 5
+) {
+  if (diepte > maxDiepte) return;
+
+  const ouders = await haalDirecteIngaandeRelatiesOp(huidigId);
+  const uniekeOuders = ouders.filter((o: RelatieBoomItem) => !visited.has(o.source_id));
+
+  for (const ouder of uniekeOuders) {
+    resultaat.push({ ...ouder, depth: diepte });
+    visited.add(ouder.source_id);
+  }
+
+  const isVertakking = uniekeOuders.length >= 2;
+
+  for (const ouder of uniekeOuders) {
+    if (isVertakking) {
+      const subOuders = await haalDirecteIngaandeRelatiesOp(ouder.source_id);
+      const uniekeSubOuders = subOuders.filter((so: RelatieBoomItem) => !visited.has(so.source_id));
+
+      for (const sub of uniekeSubOuders) {
+        resultaat.push({ ...sub, depth: diepte + 1 });
+        visited.add(sub.source_id);
+      }
+    } else {
+      await verzamelIngaand(ouder.source_id, diepte + 1, visited, resultaat, maxDiepte);
+    }
+  }
+}
+
+async function verzamelUitgaand(
+  huidigId: string,
+  diepte: number,
+  visited: Set<string>,
+  resultaat: RelatieBoomItem[],
+  maxDiepte: number = 5
+) {
+  if (diepte > maxDiepte) return;
+
+  const kinderen = await haalDirecteUitgaandeRelatiesOp(huidigId);
+  const uniekeKinderen = kinderen.filter((k: RelatieBoomItem) => !visited.has(k.target_id));
+
+  for (const kind of uniekeKinderen) {
+    resultaat.push({ ...kind, depth: diepte });
+    visited.add(kind.target_id);
+  }
+
+  const isVertakking = uniekeKinderen.length >= 2;
+
+  for (const kind of uniekeKinderen) {
+    if (isVertakking) {
+      const subKinderen = await haalDirecteUitgaandeRelatiesOp(kind.target_id);
+      const uniekeSubKinderen = subKinderen.filter((sk: RelatieBoomItem) => !visited.has(sk.target_id));
+
+      for (const sub of uniekeSubKinderen) {
+        resultaat.push({ ...sub, depth: diepte + 1 });
+        visited.add(sub.target_id);
+      }
+    } else {
+      await verzamelUitgaand(kind.target_id, diepte + 1, visited, resultaat, maxDiepte);
+    }
+  }
+}
+
+//
+// 7. HAAL RELATIETYPEN OP
 //
 export async function haalRelatieTypenOp() {
   const targetDb = dbRemote || dbLocal;
