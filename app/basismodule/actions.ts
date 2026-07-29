@@ -8,6 +8,7 @@ import { haalObjectDetailsOp } from "@/core/db/repository";
 import { eq } from "drizzle-orm";
 import { dbLocal, dbRemote } from "@/core/db";
 import { objects, parameterValues } from "@/core/db/schema";
+import { haalAlleEenhedenOp, maakNieuweEenheid } from "@/core/db/repository";
 
 import {
   haalAlleParameterDefinitiesOp,
@@ -256,6 +257,24 @@ export async function maakNieuwRelatieTypeAction(label: string) {
 
     revalidatePath("/basismodule");
     return { success: true, id: newId };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function getUnitsAction() {
+  try {
+    const data = await haalAlleEenhedenOp();
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function maakNieuweEenheidAction(label: string, symbol: string) {
+  try {
+    const id = await maakNieuweEenheid(label, symbol);
+    return { success: true, id };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

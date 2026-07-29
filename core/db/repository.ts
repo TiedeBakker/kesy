@@ -7,14 +7,16 @@ import {
     relationValues,
     parameters,
     parameterValues,
+    units,
 } from "./schema";
-
 export type EntityType =
     | "object"
     | "relation"
     | "relation_value"
     | "parameter"
-    | "parameter_value";
+    | "parameter_value"
+    | "unit";
+    
 
 //
 // 1. GENERIEK ITEM AANMAKEN
@@ -31,8 +33,8 @@ export async function maakNieuwItem(type: EntityType, data: Record<string, any>)
         ...data,
     };
 
-    // Stamgegevens (relations & parameters) schrijven we naar beide databases
-    if (type === "relation" || type === "parameter") {
+    // Stamgegevens (relations, parameters EN units) schrijven we naar beide databases
+    if (type === "relation" || type === "parameter" || type === "unit") { // <-- 1. "unit" hier toegevoegd
         if (dbRemote) await insertIntoTable(dbRemote, type, baseData);
         if (dbLocal) await insertIntoTable(dbLocal, type, baseData);
         return newId;
@@ -71,9 +73,11 @@ async function insertIntoTable(targetDb: any, type: EntityType, baseData: any) {
         case "parameter_value":
             await targetDb.insert(parameterValues).values(baseData as any);
             break;
+        case "unit": // <-- 2. Deze case is toegevoegd!
+            await targetDb.insert(units).values(baseData as any);
+            break;
     }
 }
-
 //
 // 2. RELATIE AANMAKEN MET AUTOMATISCHE BEVEILIGINGSREGEL
 //
@@ -237,6 +241,7 @@ export interface RelatieBoomItem {
     source_label?: string;
     target_label?: string;
     depth?: number;
+    childCount?: number; // <-- NIEUW: geeft aan hoeveel relaties er achter de splitsing liggen
 }
 
 //
@@ -331,25 +336,35 @@ async function verzamelIngaand(
     const ouders = await haalDirecteIngaandeRelatiesOp(huidigId);
     const uniekeOuders = ouders.filter((o: RelatieBoomItem) => !visited.has(o.source_id));
 
-    for (const ouder of uniekeOuders) {
-        resultaat.push({ ...ouder, depth: diepte });
-        visited.add(ouder.source_id);
-    }
+    if (uniekeOuders.length === 0) return;
 
-    const isVertakking = uniekeOuders.length >= 2;
+    // Is er een splitsing op dit niveau?
+    const isVertakking = uniekeOuders.length > 1;
 
-    for (const ouder of uniekeOuders) {
-        if (isVertakking) {
+    if (isVertakking) {
+        // STOPPEN BIJ DE SPLITSING:
+        // We voegen de ouders van de splitsing toe en tellen per ouder hoeveel relaties híér weer achter liggen.
+        for (const ouder of uniekeOuders) {
+            visited.add(ouder.source_id);
+            
+            // Tel hoeveel relaties er achter dit specifieke vertakkings-object liggen
             const subOuders = await haalDirecteIngaandeRelatiesOp(ouder.source_id);
-            const uniekeSubOuders = subOuders.filter((so: RelatieBoomItem) => !visited.has(so.source_id));
+            const uniekeSubCount = subOuders.filter((so) => !visited.has(so.source_id)).length;
 
-            for (const sub of uniekeSubOuders) {
-                resultaat.push({ ...sub, depth: diepte + 1 });
-                visited.add(sub.source_id);
-            }
-        } else {
-            await verzamelIngaand(ouder.source_id, diepte + 1, visited, resultaat, maxDiepte);
+            resultaat.push({
+                ...ouder,
+                depth: diepte,
+                childCount: uniekeSubCount // Aantal objecten op het volgende niveau
+            });
         }
+        // We gaan HIER bewust NIET verder recursief de diepte in!
+    } else {
+        // Lineair pad (slechts 1 ouder): voeg toe en vervolg de keten
+        const enkelvoudigeOuder = uniekeOuders[0];
+        visited.add(enkelvoudigeOuder.source_id);
+        resultaat.push({ ...enkelvoudigeOuder, depth: diepte });
+
+        await verzamelIngaand(enkelvoudigeOuder.source_id, diepte + 1, visited, resultaat, maxDiepte);
     }
 }
 
@@ -365,28 +380,36 @@ async function verzamelUitgaand(
     const kinderen = await haalDirecteUitgaandeRelatiesOp(huidigId);
     const uniekeKinderen = kinderen.filter((k: RelatieBoomItem) => !visited.has(k.target_id));
 
-    for (const kind of uniekeKinderen) {
-        resultaat.push({ ...kind, depth: diepte });
-        visited.add(kind.target_id);
-    }
+    if (uniekeKinderen.length === 0) return;
 
-    const isVertakking = uniekeKinderen.length >= 2;
+    // Is er een splitsing op dit niveau?
+    const isVertakking = uniekeKinderen.length > 1;
 
-    for (const kind of uniekeKinderen) {
-        if (isVertakking) {
+    if (isVertakking) {
+        // STOPPEN BIJ DE SPLITSING:
+        for (const kind of uniekeKinderen) {
+            visited.add(kind.target_id);
+
+            // Tel hoeveel relaties er achter dit specifieke vertakkings-object liggen
             const subKinderen = await haalDirecteUitgaandeRelatiesOp(kind.target_id);
-            const uniekeSubKinderen = subKinderen.filter((sk: RelatieBoomItem) => !visited.has(sk.target_id));
+            const uniekeSubCount = subKinderen.filter((sk) => !visited.has(sk.target_id)).length;
 
-            for (const sub of uniekeSubKinderen) {
-                resultaat.push({ ...sub, depth: diepte + 1 });
-                visited.add(sub.target_id);
-            }
-        } else {
-            await verzamelUitgaand(kind.target_id, diepte + 1, visited, resultaat, maxDiepte);
+            resultaat.push({
+                ...kind,
+                depth: diepte,
+                childCount: uniekeSubCount // Aantal objecten op het volgende niveau
+            });
         }
+        // We gaan HIER bewust NIET verder recursief de diepte in!
+    } else {
+        // Lineair pad (slechts 1 kind): voeg toe en vervolg de keten
+        const enkelvoudigKind = uniekeKinderen[0];
+        visited.add(enkelvoudigKind.target_id);
+        resultaat.push({ ...enkelvoudigKind, depth: diepte });
+
+        await verzamelUitgaand(enkelvoudigKind.target_id, diepte + 1, visited, resultaat, maxDiepte);
     }
 }
-
 //
 // 7. HAAL RELATIETYPEN OP
 //
@@ -506,4 +529,20 @@ export async function vernieuwParameterWaardeMetHistorie(
         value: nieuweWaarde,
         isConfidential,
     });
+}
+
+export async function haalAlleEenhedenOp() {
+  const [lokaleUnits, remoteUnits] = await Promise.all([
+    dbLocal ? dbLocal.select().from(units) : Promise.resolve([]),
+    dbRemote ? dbRemote.select().from(units) : Promise.resolve([]),
+  ]);
+
+  const unitMap = new Map();
+  [...remoteUnits, ...lokaleUnits].forEach((u) => unitMap.set(u.id, u));
+
+  return Array.from(unitMap.values());
+}
+
+export async function maakNieuweEenheid(label: string, symbol: string) {
+  return await maakNieuwItem("unit", { label, symbol });
 }
