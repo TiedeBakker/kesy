@@ -132,6 +132,7 @@ export async function maakNieuweParameterDefinitieAction(data: {
       code: data.code || data.label.toLowerCase().replace(/\s+/g, "_"),
       dataType: data.dataType || "string",
       unit: data.unit || null,
+      isConfidential: false, // 👈 Altijd public/centraal (Turso)
     });
 
     revalidatePath("/basismodule");
@@ -140,19 +141,32 @@ export async function maakNieuweParameterDefinitieAction(data: {
     return { success: false, error: error.message };
   }
 }
+// 3. Parameterwaarde toevoegen aan een object of relatie
+export async function voegParameterWaardeToeAction(formData: FormData) {
+  try {
+    const objectId = formData.get("objectId") as string;
+    const targetId = (formData.get("targetId") as string) || objectId;
+    
+    // Type-safe ophalen en valideren van targetType
+    const rawTargetType = formData.get("targetType") as string;
+    const targetType: "object" | "relation_value" = 
+      rawTargetType === "relation_value" ? "relation_value" : "object";
 
-// 3. Parameterwaarde toevoegen aan een object
-export async function voegParameterWaardeToeAction(formData: FormData): Promise<void> {
-  const objectId = formData.get("objectId") as string;
-  const parameterId = formData.get("parameterId") as string;
-  const value = formData.get("value") as string;
+    const parameterId = formData.get("parameterId") as string;
+    const value = formData.get("value") as string;
 
-  if (!objectId || !parameterId || !value) return;
+    if (!targetId || !parameterId || !value) {
+      return { success: false, error: "Verplichte velden ontbreken" };
+    }
 
-  // Gebruik de beveiligde functie
-  await voegParameterWaardeToeMetBeveiliging(objectId, parameterId, value);
+    // Nu accepteert TypeScript targetType zonder problemen!
+    await voegParameterWaardeToeMetBeveiliging(targetId, parameterId, value, targetType);
 
-  revalidatePath("/basismodule");
+    revalidatePath("/basismodule");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 }
 // 4. Parameterwaarde corrigeren (Rechtstreekse mutatie zonder historie-record)
 export async function corrigeerParameterWaardeAction(
@@ -321,4 +335,20 @@ export async function verplaatsRelatieAction(
   } catch (error: any) {
     return { success: false, error: error.message };
   }
+}
+export async function voegRelatieParameterWaardeToeAction(
+  relationValueId: string,
+  parameterId: string,
+  value: string,
+  isConfidential: boolean = false
+) {
+  const newId = await voegParameterWaardeToeMetBeveiliging(
+    relationValueId,
+    parameterId,
+    value,
+    'relation_value',
+    isConfidential
+  );
+  revalidatePath("/");
+  return newId;
 }

@@ -17,6 +17,7 @@ import {
     verplaatsRelatieAction,
     getObjectDetailsAction
 } from "../actions";
+import RelatieParamModal from "./RelatieParamModal";
 
 interface ObjectDetailPanelProps {
     details: ObjectDetails | null;
@@ -85,6 +86,11 @@ export default function ObjectDetailPanel({
     const [validTo, setValidTo] = useState("");
 
     const [newParamValue, setNewParamValue] = useState("");
+
+    // State om bij te houden van welke relatie de parameters zijn opengeklapt
+    const [openRelatieId, setOpenRelatieId] = useState<string | null>(null);
+
+    const [actieveRelatieVoorModal, setActieveRelatieVoorModal] = useState<any | null>(null);
 
     useEffect(() => {
         async function loadData() {
@@ -480,6 +486,7 @@ export default function ObjectDetailPanel({
                                             key={rel.relation_value_id}
                                             className="p-2 bg-slate-950 rounded border border-slate-800 flex items-center gap-2 text-xs"
                                         >
+                                            {/* Volgorde Knoppen */}
                                             <div className="flex flex-col bg-slate-900 rounded border border-slate-700 overflow-hidden shrink-0">
                                                 <button
                                                     disabled={idx === 0}
@@ -503,6 +510,7 @@ export default function ObjectDetailPanel({
                                                 </button>
                                             </div>
 
+                                            {/* Target Label */}
                                             <div className="flex-1 flex justify-between items-center min-w-0">
                                                 <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded truncate max-w-[100px]">
                                                     ➔ {rel.relation_id}
@@ -511,6 +519,14 @@ export default function ObjectDetailPanel({
                                                     {rel.target_label || rel.target_id}
                                                 </span>
                                             </div>
+
+                                            {/* Knop om Modal te openen */}
+                                            <button
+                                                onClick={() => setActieveRelatieVoorModal(rel)}
+                                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-semibold transition-colors shrink-0"
+                                            >
+                                                ⚙️ {rel.parameters?.length || 0}
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
@@ -827,6 +843,22 @@ export default function ObjectDetailPanel({
                     </>
                 ) : null}
             </div>
+            {/* RELATIE PARAMETER MODAL */}
+            {actieveRelatieVoorModal && (
+                <RelatieParamModal
+                    relatie={actieveRelatieVoorModal}
+                    parameterDefinities={parameterDefinities}
+                    onClose={() => setActieveRelatieVoorModal(null)}
+                    onSuccess={async () => {
+                        await herlaadDetails();
+                        // Update de actieve relatie in de modal-state met de nieuwste data
+                        const bijgewerkt = localDetails?.uitgaandeRelaties.find(
+                            (r) => r.relation_value_id === actieveRelatieVoorModal.relation_value_id
+                        );
+                        if (bijgewerkt) setActieveRelatieVoorModal(bijgewerkt);
+                    }}
+                />
+            )}
         </div>
     );
 }   

@@ -33,10 +33,14 @@ export async function maakNieuwItem(type: EntityType, data: Record<string, any>)
         ...data,
     };
 
-    // Stamgegevens (relations, parameters EN units) schrijven we naar beide databases
-    if (type === "relation" || type === "parameter" || type === "unit") { // <-- 1. "unit" hier toegevoegd
-        if (dbRemote) await insertIntoTable(dbRemote, type, baseData);
-        if (dbLocal) await insertIntoTable(dbLocal, type, baseData);
+    // 🔴 NIEUW: Stamgegevens (parameters, units, relation definities) 
+    // Schrijven we EXCLUSIEF naar Turso (dbRemote) als die beschikbaar is, 
+    // anders als fallback lokaal (bijv. tijdens offline development).
+    if (type === "relation" || type === "parameter" || type === "unit") {
+        const stamDb = dbRemote || dbLocal;
+        if (stamDb) {
+            await insertIntoTable(stamDb, type, baseData);
+        }
         return newId;
     }
 
@@ -241,7 +245,15 @@ export interface RelatieBoomItem {
     source_label?: string;
     target_label?: string;
     depth?: number;
-    childCount?: number; // <-- NIEUW: geeft aan hoeveel relaties er achter de splitsing liggen
+    childCount?: number;
+    parameters?: {             // <-- NIEUW VOOR STAP 4
+        id: string;
+        parameterId: string;
+        parameterLabel?: string;
+        value: string;
+        validFrom?: string;
+        isConfidential?: boolean;
+    }[];
 }
 
 //
@@ -277,7 +289,6 @@ export async function haalDirecteIngaandeRelatiesOp(targetId: string): Promise<R
 }
 
 export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<RelatieBoomItem[]> {
-    // Sorteer direct in de SQL query op 'volgorde' ASC, daarna op id als fallback
     const query = sql`
     SELECT 
       rv.id as relation_value_id,
@@ -285,7 +296,8 @@ export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<
       rv.target_id,
       rv.relation_id,
       t.label as target_label,
-      rv.volgorde
+      rv.volgorde,
+      rv.is_confidential as isConfidential
     FROM ${relationValues} rv
     LEFT JOIN ${objects} t ON rv.target_id = t.id
     WHERE rv.source_id = ${sourceId} AND rv.valid_to IS NULL
@@ -305,8 +317,40 @@ export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<
         }
     }
 
-    // Map over de waarden om er zeker van te zijn dat de interface matcht
-    return Array.from(uniekMap.values());
+    const relaties = Array.from(uniekMap.values());
+
+    // NIEUW VOOR STAP 4: Haal per relatie de gekoppelde parameterwaarden op
+    const relatiesMetParams = await Promise.all(
+        relaties.map(async (rel) => {
+            const paramQuery = sql`
+                SELECT 
+                  pv.id,
+                  pv.parameter_id as parameterId,
+                  p.label as parameterLabel,
+                  pv.value,
+                  pv.valid_from as validFrom,
+                  pv.is_confidential as isConfidential
+                FROM ${parameterValues} pv
+                LEFT JOIN ${parameters} p ON pv.parameter_id = p.id
+                WHERE pv.target_id = ${rel.relation_value_id} 
+                  AND pv.target_type = 'relation_value'
+                  AND pv.valid_to IS NULL
+            `;
+
+            const localParams = dbLocal ? await dbLocal.all<any>(paramQuery) : [];
+            const remoteParams = dbRemote ? await dbRemote.all<any>(paramQuery) : [];
+
+            const paramMap = new Map();
+            [...remoteParams, ...localParams].forEach((p) => paramMap.set(p.id, p));
+
+            return {
+                ...rel,
+                parameters: Array.from(paramMap.values()),
+            };
+        })
+    );
+
+    return relatiesMetParams;
 }
 
 // NIEUWE FUNCTIE: Werkt de volgorde bij in alle relevante databases
@@ -565,20 +609,27 @@ export async function maakNieuweEenheid(label: string, symbol: string) {
 }
 
 export async function voegParameterWaardeToeMetBeveiliging(
-  objectId: string,
+  targetId: string,
   parameterId: string,
-  value: string
+  value: string,
+  targetType: 'object' | 'relation_value' = 'object', // <-- Uitgebreid
+  isConfidentialOverride?: boolean
 ) {
-  // 1. Haal de details van het doel-object op om vertrouwelijkheid te controleren
-  const targetObject = await haalObjectOp(objectId); // Of haalObjectDetailsOp / DB query
-  const isConfidential = targetObject?.isConfidential ?? false;
+  let isConfidential = isConfidentialOverride ?? false;
 
-  // 2. Maak de parameterwaarde aan met exact de status van het doel-object
+  // Als er geen expliciete override is meegegeven, bepalen we de vertrouwelijkheid op basis van de target
+  if (isConfidentialOverride === undefined) {
+    if (targetType === 'object') {
+      const targetObject = await haalObjectOp(targetId);
+      isConfidential = targetObject?.isConfidential ?? false;
+    }
+  }
+
   return await maakNieuwItem("parameter_value", {
-    targetId: objectId,
-    targetType: "object",
+    targetId,
+    targetType,
     parameterId,
     value,
-    isConfidential, // <-- Erg belangrijk! Erft vertrouwelijkheid over
+    isConfidential,
   });
 }
