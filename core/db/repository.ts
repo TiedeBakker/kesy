@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, asc } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { dbLocal, dbRemote, isCloudOnly } from "./index";
 import {
@@ -277,20 +277,23 @@ export async function haalDirecteIngaandeRelatiesOp(targetId: string): Promise<R
 }
 
 export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<RelatieBoomItem[]> {
+    // Sorteer direct in de SQL query op 'volgorde' ASC, daarna op id als fallback
     const query = sql`
     SELECT 
       rv.id as relation_value_id,
       rv.source_id,
       rv.target_id,
       rv.relation_id,
-      t.label as target_label
+      t.label as target_label,
+      rv.volgorde
     FROM ${relationValues} rv
     LEFT JOIN ${objects} t ON rv.target_id = t.id
     WHERE rv.source_id = ${sourceId} AND rv.valid_to IS NULL
+    ORDER BY rv.volgorde ASC, rv.id ASC
   `;
 
-    const localPromise = dbLocal ? dbLocal.all<RelatieBoomItem>(query) : Promise.resolve([]);
-    const remotePromise = dbRemote ? dbRemote.all<RelatieBoomItem>(query) : Promise.resolve([]);
+    const localPromise = dbLocal ? dbLocal.all<any>(query) : Promise.resolve([]);
+    const remotePromise = dbRemote ? dbRemote.all<any>(query) : Promise.resolve([]);
 
     const [localRows, remoteRows] = await Promise.all([localPromise, remotePromise]);
     const gecombineerd = [...remoteRows, ...localRows];
@@ -302,9 +305,23 @@ export async function haalDirecteUitgaandeRelatiesOp(sourceId: string): Promise<
         }
     }
 
+    // Map over de waarden om er zeker van te zijn dat de interface matcht
     return Array.from(uniekMap.values());
 }
 
+// NIEUWE FUNCTIE: Werkt de volgorde bij in alle relevante databases
+export async function updateRelatieVolgorde(relationValueId: string, nieuweVolgorde: number) {
+    const dbs = [dbLocal, dbRemote].filter(
+        (db): db is NonNullable<typeof db> => db !== null
+    );
+
+    for (const dbClient of dbs) {
+        await dbClient
+            .update(relationValues)
+            .set({ volgorde: nieuweVolgorde })
+            .where(eq(relationValues.id, relationValueId));
+    }
+}
 //
 // RECURSIEVE BOOM OPHALEN MET VERTAKKINGS-STOP EN CIRKEL-DETECTIE
 //
@@ -545,4 +562,23 @@ export async function haalAlleEenhedenOp() {
 
 export async function maakNieuweEenheid(label: string, symbol: string) {
   return await maakNieuwItem("unit", { label, symbol });
+}
+
+export async function voegParameterWaardeToeMetBeveiliging(
+  objectId: string,
+  parameterId: string,
+  value: string
+) {
+  // 1. Haal de details van het doel-object op om vertrouwelijkheid te controleren
+  const targetObject = await haalObjectOp(objectId); // Of haalObjectDetailsOp / DB query
+  const isConfidential = targetObject?.isConfidential ?? false;
+
+  // 2. Maak de parameterwaarde aan met exact de status van het doel-object
+  return await maakNieuwItem("parameter_value", {
+    targetId: objectId,
+    targetType: "object",
+    parameterId,
+    value,
+    isConfidential, // <-- Erg belangrijk! Erft vertrouwelijkheid over
+  });
 }

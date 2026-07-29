@@ -9,7 +9,8 @@ import {
     voegObjectToeAction,
     voegRelatieToe,
     getObjectDetailsAction,
-    maakNieuwRelatieTypeAction
+    maakNieuwRelatieTypeAction,
+    verplaatsRelatieAction
 } from "../actions";
 import { ObjectDetails } from "@/core/db/repository";
 
@@ -156,37 +157,37 @@ export default function BasismoduleClient({
             {centraalObject ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* KOLOM 1: INGAANDE BOOM */}
-                    <div className="p-4 bg-slate-900/60 rounded-lg border border-slate-800 space-y-3">
+                    <div className="p-4 bg-slate-900/60 rounded-lg border border-slate-800 space-y-3 flex flex-col max-h-[400px]">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                             &larr; Ingaande Objecten (Bron)
                         </h3>
                         {boomData.ingaand.length === 0 ? (
                             <p className="text-xs text-slate-500 italic">Geen ingaande relaties.</p>
                         ) : (
-                            <ul className="space-y-2">
+                            /* 👇 overflow-y-auto en pr-1 (voor wat ruimte naast de scrollbar) toegevoegd */
+                            <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
                                 {boomData.ingaand.map((item: any) => (
-                                    <li key={item.relation_value_id} className="flex items-center gap-1">
-                                        <Link
-                                            href={`/basismodule?selectedId=${item.source_id}`}
-                                            className="flex-1 p-2.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200 transition-colors flex justify-between items-center"
-                                        >
-                                            <div>
-                                                <span className="text-[10px] text-slate-400 block">Niveau -{item.depth}</span>
-                                                <span className="font-semibold text-emerald-300">
-                                                    {item.source_label || "Onbekend Object"}
-                                                </span>
-                                            </div>
+                                    <li key={item.relation_value_id} className="flex items-center gap-1">         <Link
+                                        href={`/basismodule?selectedId=${item.source_id}`}
+                                        className="flex-1 p-2.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200 transition-colors flex justify-between items-center"
+                                    >
+                                        <div>
+                                            <span className="text-[10px] text-slate-400 block">Niveau -{item.depth}</span>
+                                            <span className="font-semibold text-emerald-300">
+                                                {item.source_label || "Onbekend Object"}
+                                            </span>
+                                        </div>
 
-                                            {/* BADGE INDIEN ER EEN SPLITSING ACHTER ZIT */}
-                                            {Boolean(item.childCount && item.childCount > 0) && (
-                                                <span
-                                                    className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-mono font-medium"
-                                                    title={`${item.childCount} vervolgobjecten op volgend niveau`}
-                                                >
-                                                    +{item.childCount} relaties 🔀
-                                                </span>
-                                            )}
-                                        </Link>
+                                        {/* BADGE INDIEN ER EEN SPLITSING ACHTER ZIT */}
+                                        {Boolean(item.childCount && item.childCount > 0) && (
+                                            <span
+                                                className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-mono font-medium"
+                                                title={`${item.childCount} vervolgobjecten op volgend niveau`}
+                                            >
+                                                +{item.childCount} relaties 🔀
+                                            </span>
+                                        )}
+                                    </Link>
                                         <button
                                             onClick={() => handleSelectObject(item.source_id)}
                                             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700"
@@ -291,16 +292,47 @@ export default function BasismoduleClient({
                     </div>
 
                     {/* KOLOM 3: UITGAANDE BOOM */}
-                    <div className="p-4 bg-slate-900/60 rounded-lg border border-slate-800 space-y-3">
+                    <div className="p-4 bg-slate-900/60 rounded-lg border border-slate-800 space-y-3 flex flex-col max-h-[400px]">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                             Uitgaande Objecten (Doel) &rarr;
                         </h3>
                         {boomData.uitgaand.length === 0 ? (
                             <p className="text-xs text-slate-500 italic">Geen uitgaande relaties.</p>
                         ) : (
-                            <ul className="space-y-2">
-                                {boomData.uitgaand.map((item: any) => (
+                            <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
+                                {boomData.uitgaand.map((item: any, idx: number) => (
                                     <li key={item.relation_value_id} className="flex items-center gap-1">
+                                        {/* Sorteer knoppen */}
+                                        <div className="flex flex-col bg-slate-800 rounded border border-slate-700 overflow-hidden">
+                                            <button
+                                                disabled={idx === 0}
+                                                onClick={async () => {
+                                                    await verplaatsRelatieAction(item.relation_value_id, centraalObject.id, "up");
+                                                    // Indien het detailpaneel open staat voor dit object, ververs dit direct
+                                                    if (selectedDetails?.object.id === centraalObject.id) {
+                                                        handleSelectObject(centraalObject.id);
+                                                    }
+                                                }}
+                                                className="p-1 text-[9px] text-slate-400 hover:text-emerald-400 hover:bg-slate-700 disabled:opacity-30 transition-colors"
+                                                title="Omhoog"
+                                            >
+                                                ▲
+                                            </button>
+                                            <button
+                                                disabled={idx === boomData.uitgaand.length - 1}
+                                                onClick={async () => {
+                                                    await verplaatsRelatieAction(item.relation_value_id, centraalObject.id, "down");
+                                                    if (selectedDetails?.object.id === centraalObject.id) {
+                                                        handleSelectObject(centraalObject.id);
+                                                    }
+                                                }}
+                                                className="p-1 text-[9px] text-slate-400 hover:text-emerald-400 hover:bg-slate-700 disabled:opacity-30 border-t border-slate-700/60 transition-colors"
+                                                title="Omlaag"
+                                            >
+                                                ▼
+                                            </button>
+                                        </div>
+
                                         <Link
                                             href={`/basismodule?selectedId=${item.target_id}`}
                                             className="flex-1 p-2.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200 transition-colors flex justify-between items-center"
@@ -312,7 +344,6 @@ export default function BasismoduleClient({
                                                 </span>
                                             </div>
 
-                                            {/* BADGE INDIEN ER EEN SPLITSING ACHTER ZIT */}
                                             {Boolean(item.childCount && item.childCount > 0) && (
                                                 <span
                                                     className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-mono font-medium"
@@ -324,7 +355,7 @@ export default function BasismoduleClient({
                                         </Link>
                                         <button
                                             onClick={() => handleSelectObject(item.target_id)}
-                                            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700"
+                                            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700 h-full"
                                             title="Bekijk details"
                                         >
                                             👁
@@ -333,8 +364,7 @@ export default function BasismoduleClient({
                                 ))}
                             </ul>
                         )}
-                    </div>
-                </div>
+                    </div>                </div>
             ) : (
                 <div className="p-8 text-center bg-slate-900/40 rounded-lg border border-dashed border-slate-800 text-slate-500">
                     <p>Kies hierboven een object om het centraal te stellen en door de boom te navigeren.</p>

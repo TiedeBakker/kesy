@@ -14,6 +14,8 @@ import {
     updateObjectBasisAction,
     getUnitsAction,
     maakNieuweEenheidAction,
+    verplaatsRelatieAction,
+    getObjectDetailsAction
 } from "../actions";
 
 interface ObjectDetailPanelProps {
@@ -34,6 +36,21 @@ export default function ObjectDetailPanel({
     isLoading,
     onClose,
 }: ObjectDetailPanelProps) {
+
+    const [localDetails, setLocalDetails] = useState<ObjectDetails | null>(details);
+
+    useEffect(() => {
+        setLocalDetails(details);
+    }, [details]);
+
+    const herlaadDetails = async () => {
+        if (!localDetails?.object.id) return;
+        const res = await getObjectDetailsAction(localDetails.object.id);
+        if (res.success && res.data) {
+            setLocalDetails(res.data);
+        }
+    };
+
     const [isMinimized, setIsMinimized] = useState(false);
     const [isEditingBasis, setIsEditingBasis] = useState(false);
 
@@ -85,28 +102,29 @@ export default function ObjectDetailPanel({
         }
         loadData();
     }, []);
+
     useEffect(() => {
-        if (details?.object) {
-            setLabel(details.object.label || "");
-            if (details.object.validFrom) {
-                setValidFrom(new Date(details.object.validFrom).toISOString().slice(0, 16));
+        if (localDetails?.object) {
+            setLabel(localDetails.object.label || "");
+            if (localDetails.object.validFrom) {
+                setValidFrom(new Date(localDetails.object.validFrom).toISOString().slice(0, 16));
             } else {
                 setValidFrom("");
             }
 
             // @ts-ignore
-            if (details.object.validTo) {
+            if (localDetails.object.validTo) {
                 // @ts-ignore
-                setValidTo(new Date(details.object.validTo).toISOString().slice(0, 16));
+                setValidTo(new Date(localDetails.object.validTo).toISOString().slice(0, 16));
             } else {
                 setValidTo("");
             }
         }
         setIsEditingBasis(false);
         setIsMinimized(false);
-    }, [details]);
+    }, [localDetails]);
 
-    if (!details && !isLoading) return null;
+    if (!localDetails && !isLoading) return null;
 
     const formatDate = (dateString?: string | Date | null) => {
         if (!dateString) return "-";
@@ -183,10 +201,10 @@ export default function ObjectDetailPanel({
     // HANDLERS
     const handleSaveBasis = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!details?.object?.id) return;
+        if (!localDetails?.object?.id) return;
 
         const res = await updateObjectBasisAction(
-            details.object.id,
+            localDetails.object.id,
             label,
             validFrom,
             validTo || null
@@ -194,6 +212,7 @@ export default function ObjectDetailPanel({
 
         if (res.success) {
             setIsEditingBasis(false);
+            await herlaadDetails();
         } else {
             alert("Fout bij opslaan: " + res.error);
         }
@@ -249,40 +268,42 @@ export default function ObjectDetailPanel({
         await voegParameterWaardeToeAction(formData);
         setIsAddingParam(false);
         setSelectedParamId("");
-        setNewParamValue(""); // <-- Reset de input
+        setNewParamValue("");
+        await herlaadDetails();
     };
 
     const handleSaveParameterValue = async (param: any) => {
+        if (!localDetails?.object?.id) return;
+
         if (editMode === "correctie") {
             await corrigeerParameterWaardeAction(param.id, editValue);
         } else {
             await vernieuwParameterWaardeAction(
                 param.id,
-                details!.object.id,
+                localDetails.object.id,
                 param.parameterId,
                 editValue
             );
         }
         setEditingParamId(null);
+        await herlaadDetails();
     };
 
     const handleDeactiveerParameter = async (valueId: string) => {
         if (confirm("Weet je zeker dat je deze parameterwaarde wilt uitschakelen?")) {
             await deactiveerParameterWaardeAction(valueId);
+            await herlaadDetails();
         }
     };
 
     // Geselecteerde parameter definitie object opsporen
     const selectedDef = parameterDefinities.find((d) => d.id === selectedParamId);
 
-    // @ts-ignore
-    const objectValidTo = details?.object?.validTo;
-
     if (isMinimized) {
         return (
             <div className="fixed bottom-4 right-4 bg-slate-800 border border-slate-700 text-slate-200 px-4 py-2 rounded-lg shadow-xl z-50 flex items-center gap-3">
                 <span className="text-xs font-bold text-emerald-400">
-                    {details?.object?.label || "Object"}
+                    {localDetails?.object?.label || "Object"}
                 </span>
                 <button
                     onClick={() => setIsMinimized(false)}
@@ -303,10 +324,10 @@ export default function ObjectDetailPanel({
             <div className="p-4 border-b border-slate-800 flex justify-between items-start bg-slate-950">
                 <div className="space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                        {details?.object?.type || "Object Details"}
+                        {localDetails?.object?.type || "Object Details"}
                     </span>
                     <h2 className="text-xl font-bold text-white">
-                        {isLoading ? "Laden..." : details?.object?.label || "Onbekend Object"}
+                        {isLoading ? "Laden..." : localDetails?.object?.label || "Onbekend Object"}
                     </h2>
                 </div>
 
@@ -334,7 +355,7 @@ export default function ObjectDetailPanel({
                     <div className="flex justify-center items-center h-32 text-slate-500">
                         Details ophalen...
                     </div>
-                ) : details ? (
+                ) : localDetails ? (
                     <>
                         {/* STAMGEGEVENS / BASISGEGEVENS */}
                         <div className="bg-slate-950/60 p-3.5 rounded-lg border border-slate-800 space-y-3">
@@ -406,13 +427,13 @@ export default function ObjectDetailPanel({
                                     <div>
                                         <span className="text-slate-500 block">Vertrouwelijk:</span>
                                         <span className="text-slate-300 font-medium">
-                                            {details.object.isConfidential ? "Ja 🔒" : "Nee"}
+                                            {localDetails.object.isConfidential ? "Ja 🔒" : "Nee"}
                                         </span>
                                     </div>
                                     <div>
                                         <span className="text-slate-500 block">Geldig vanaf:</span>
                                         <span className="text-slate-300 font-mono text-[11px]">
-                                            {formatDate(details.object.validFrom)}
+                                            {formatDate(localDetails.object.validFrom)}
                                         </span>
                                     </div>
                                 </div>
@@ -422,13 +443,13 @@ export default function ObjectDetailPanel({
                         {/* SECTIE 1: INGAANDE RELATIES */}
                         <div className="space-y-2">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                                Ingaande Relaties ({details.ingaandeRelaties?.length || 0})
+                                Ingaande Relaties ({localDetails.ingaandeRelaties?.length || 0})
                             </h3>
-                            {!details.ingaandeRelaties || details.ingaandeRelaties.length === 0 ? (
+                            {!localDetails.ingaandeRelaties || localDetails.ingaandeRelaties.length === 0 ? (
                                 <p className="text-xs text-slate-500 italic">Geen ingaande relaties.</p>
                             ) : (
                                 <div className="space-y-1.5">
-                                    {details.ingaandeRelaties.map((rel) => (
+                                    {localDetails.ingaandeRelaties.map((rel) => (
                                         <div
                                             key={rel.relation_value_id}
                                             className="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center justify-between text-xs"
@@ -448,23 +469,48 @@ export default function ObjectDetailPanel({
                         {/* SECTIE 2: UITGAANDE RELATIES */}
                         <div className="space-y-2">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                                Uitgaande Relaties ({details.uitgaandeRelaties?.length || 0})
+                                Uitgaande Relaties ({localDetails.uitgaandeRelaties?.length || 0})
                             </h3>
-                            {!details.uitgaandeRelaties || details.uitgaandeRelaties.length === 0 ? (
+                            {!localDetails.uitgaandeRelaties || localDetails.uitgaandeRelaties.length === 0 ? (
                                 <p className="text-xs text-slate-500 italic">Geen uitgaande relaties.</p>
                             ) : (
                                 <div className="space-y-1.5">
-                                    {details.uitgaandeRelaties.map((rel) => (
+                                    {localDetails.uitgaandeRelaties.map((rel, idx) => (
                                         <div
                                             key={rel.relation_value_id}
-                                            className="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center justify-between text-xs"
+                                            className="p-2 bg-slate-950 rounded border border-slate-800 flex items-center gap-2 text-xs"
                                         >
-                                            <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">
-                                                ➔ {rel.relation_id}
-                                            </span>
-                                            <span className="text-slate-200 font-medium">
-                                                {rel.target_label || rel.target_id}
-                                            </span>
+                                            <div className="flex flex-col bg-slate-900 rounded border border-slate-700 overflow-hidden shrink-0">
+                                                <button
+                                                    disabled={idx === 0}
+                                                    onClick={async () => {
+                                                        await verplaatsRelatieAction(rel.relation_value_id, localDetails.object.id, "up");
+                                                        await herlaadDetails();
+                                                    }}
+                                                    className="px-1 py-0.5 text-[8px] text-slate-400 hover:text-emerald-400 disabled:opacity-20"
+                                                >
+                                                    ▲
+                                                </button>
+                                                <button
+                                                    disabled={idx === (localDetails.uitgaandeRelaties?.length || 0) - 1}
+                                                    onClick={async () => {
+                                                        await verplaatsRelatieAction(rel.relation_value_id, localDetails.object.id, "down");
+                                                        await herlaadDetails();
+                                                    }}
+                                                    className="px-1 py-0.5 text-[8px] text-slate-400 hover:text-emerald-400 disabled:opacity-20 border-t border-slate-800"
+                                                >
+                                                    ▼
+                                                </button>
+                                            </div>
+
+                                            <div className="flex-1 flex justify-between items-center min-w-0">
+                                                <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded truncate max-w-[100px]">
+                                                    ➔ {rel.relation_id}
+                                                </span>
+                                                <span className="text-slate-200 font-medium truncate ml-2">
+                                                    {rel.target_label || rel.target_id}
+                                                </span>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -475,7 +521,7 @@ export default function ObjectDetailPanel({
                         <div className="space-y-3">
                             <div className="flex justify-between items-center">
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                                    Parameterwaarden ({details.parameterWaarden?.length || 0})
+                                    Parameterwaarden ({localDetails.parameterWaarden?.length || 0})
                                 </h3>
                                 <button
                                     onClick={() => {
@@ -531,7 +577,6 @@ export default function ObjectDetailPanel({
                                                     />
                                                 </div>
 
-                                                {/* SELECTIE MET EENHEDEN UIT UNIT TABEL */}
                                                 <div>
                                                     <div className="flex justify-between items-center mb-1">
                                                         <label className="text-[10px] text-slate-400">Eenheid</label>
@@ -612,7 +657,7 @@ export default function ObjectDetailPanel({
                                     ) : (
                                         /* FORMULIER B: KOPPEL BESTAANDE PARAMETER WAARDE */
                                         <form onSubmit={handleAddParameterSubmit} className="space-y-3">
-                                            <input type="hidden" name="objectId" value={details.object.id} />
+                                            <input type="hidden" name="objectId" value={localDetails.object.id} />
                                             <div>
                                                 <label className="text-[10px] text-slate-400 block mb-1">
                                                     Selecteer Parameter
@@ -622,7 +667,7 @@ export default function ObjectDetailPanel({
                                                     value={selectedParamId}
                                                     onChange={(e) => {
                                                         setSelectedParamId(e.target.value);
-                                                        setNewParamValue(""); // Reset waarde bij wisselen van parameter
+                                                        setNewParamValue("");
                                                     }}
                                                     required
                                                     className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200"
@@ -646,8 +691,8 @@ export default function ObjectDetailPanel({
                                                     </div>
                                                     {renderValueInput(
                                                         selectedDef?.dataType,
-                                                        newParamValue, // <-- Gebruik de state
-                                                        (val) => setNewParamValue(val), // <-- Update de state bij typen
+                                                        newParamValue,
+                                                        (val) => setNewParamValue(val),
                                                         "value"
                                                     )}
                                                 </div>
@@ -667,11 +712,11 @@ export default function ObjectDetailPanel({
                             )}
 
                             {/* LIJST MET ACTIEVE PARAMETERWAARDEN */}
-                            {!details.parameterWaarden || details.parameterWaarden.length === 0 ? (
+                            {!localDetails.parameterWaarden || localDetails.parameterWaarden.length === 0 ? (
                                 <p className="text-xs text-slate-500 italic">Geen parameters gekoppeld.</p>
                             ) : (
                                 <div className="space-y-2">
-                                    {details.parameterWaarden.map((param: any) => (
+                                    {localDetails.parameterWaarden.map((param: any) => (
                                         <div
                                             key={param.id}
                                             className="p-3 bg-slate-950 rounded border border-slate-800 text-xs space-y-2"
@@ -784,4 +829,4 @@ export default function ObjectDetailPanel({
             </div>
         </div>
     );
-}
+}   

@@ -8,7 +8,8 @@ import { haalObjectDetailsOp } from "@/core/db/repository";
 import { eq } from "drizzle-orm";
 import { dbLocal, dbRemote } from "@/core/db";
 import { objects, parameterValues } from "@/core/db/schema";
-import { haalAlleEenhedenOp, maakNieuweEenheid } from "@/core/db/repository";
+import { haalAlleEenhedenOp, maakNieuweEenheid, voegParameterWaardeToeMetBeveiliging } from "@/core/db/repository";
+import { updateRelatieVolgorde, haalDirecteUitgaandeRelatiesOp } from "@/core/db/repository";
 
 import {
   haalAlleParameterDefinitiesOp,
@@ -148,31 +149,37 @@ export async function voegParameterWaardeToeAction(formData: FormData): Promise<
 
   if (!objectId || !parameterId || !value) return;
 
-  await maakNieuwItem("parameter_value", {
-    targetId: objectId,
-    targetType: "object",
-    parameterId,
-    value,
-  });
+  // Gebruik de beveiligde functie
+  await voegParameterWaardeToeMetBeveiliging(objectId, parameterId, value);
 
   revalidatePath("/basismodule");
 }
-
 // 4. Parameterwaarde corrigeren (Rechtstreekse mutatie zonder historie-record)
 export async function corrigeerParameterWaardeAction(
   valueId: string,
   newValue: string
 ) {
   try {
-    const dbs = [dbLocal, dbRemote].filter(
-      (db): db is NonNullable<typeof db> => db !== null
-    );
+    // 1. Zorg dat we altijd minimaal in dbLocal updaten
+    await dbLocal
+      .update(parameterValues)
+      .set({ value: newValue })
+      .where(eq(parameterValues.id, valueId));
 
-    for (const dbClient of dbs) {
-      await dbClient
-        .update(parameterValues)
-        .set({ value: newValue })
+    // 2. Update REMOTE alleen als dbRemote bestaat én het item NIET vertrouwelijk is
+    if (dbRemote) {
+      // Check of deze waarde lokaal vertrouwelijk is
+      const [localVal] = await dbLocal
+        .select({ isConfidential: parameterValues.isConfidential })
+        .from(parameterValues)
         .where(eq(parameterValues.id, valueId));
+
+      if (localVal && !localVal.isConfidential) {
+        await dbRemote
+          .update(parameterValues)
+          .set({ value: newValue })
+          .where(eq(parameterValues.id, valueId));
+      }
     }
 
     revalidatePath("/basismodule");
@@ -275,6 +282,42 @@ export async function maakNieuweEenheidAction(label: string, symbol: string) {
   try {
     const id = await maakNieuweEenheid(label, symbol);
     return { success: true, id };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function verplaatsRelatieAction(
+  relationValueId: string,
+  sourceId: string,
+  richting: "up" | "down"
+) {
+  try {
+    // 1. Haal alle huidige uitgaande relaties op (deze zijn al gesorteerd via de repository)
+    const relaties = await haalDirecteUitgaandeRelatiesOp(sourceId);
+    
+    // 2. Vind de index van het te verplaatsen item
+    const index = relaties.findIndex((r) => r.relation_value_id === relationValueId);
+    if (index === -1) return { success: false, error: "Relatie niet gevonden" };
+
+    // 3. Bepaal de nieuwe index
+    const nieuweIndex = richting === "up" ? index - 1 : index + 1;
+    if (nieuweIndex < 0 || nieuweIndex >= relaties.length) {
+      return { success: true }; // Kan niet verder omhoog of omlaag
+    }
+
+    // 4. Wissel de posities in de array
+    const tijdelijk = relaties[index];
+    relaties[index] = relaties[nieuweIndex];
+    relaties[nieuweIndex] = tijdelijk;
+
+    // 5. Schrijf de nieuwe volgorde indices opeenvolgend weg naar de DB
+    for (let i = 0; i < relaties.length; i++) {
+      await updateRelatieVolgorde(relaties[i].relation_value_id, i);
+    }
+
+    revalidatePath("/basismodule");
+    return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
