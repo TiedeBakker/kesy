@@ -1,3 +1,4 @@
+// kesy/core/db/repository.ts
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 //

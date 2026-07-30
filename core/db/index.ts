@@ -1,4 +1,4 @@
-// core/db/index.ts
+// kesy/core/db/index.ts
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "./schema";
