@@ -7,7 +7,7 @@ import { voegRelatieToeMetBeveiliging } from "@/core/db/repository";
 import { haalObjectDetailsOp } from "@/core/db/repository";
 import { eq } from "drizzle-orm";
 import { dbLocal, dbRemote } from "@/core/db";
-import { objects, parameterValues } from "@/core/db/schema";
+import { objects, parameterValues, relationValues } from "@/core/db/schema";
 import { haalAlleEenhedenOp, maakNieuweEenheid, voegParameterWaardeToeMetBeveiliging } from "@/core/db/repository";
 import { updateRelatieVolgorde, haalDirecteUitgaandeRelatiesOp } from "@/core/db/repository";
 
@@ -351,4 +351,25 @@ export async function voegRelatieParameterWaardeToeAction(
   );
   revalidatePath("/");
   return newId;
+}
+// app/basismodule/actions.ts
+
+export async function verwijderRelatieAction(relationValueId: string) {
+  try {
+    const dbs = [dbLocal, dbRemote].filter(
+      (db): db is NonNullable<typeof db> => db !== null
+    );
+
+    // Verwijder het specifieke relation_value record permanent uit alle actieve databases
+    for (const dbClient of dbs) {
+      await dbClient
+        .delete(relationValues)
+        .where(eq(relationValues.id, relationValueId));
+    }
+
+    revalidatePath("/basismodule");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 }

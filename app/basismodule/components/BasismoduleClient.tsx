@@ -10,7 +10,8 @@ import {
     voegRelatieToe,
     getObjectDetailsAction,
     maakNieuwRelatieTypeAction,
-    verplaatsRelatieAction
+    verplaatsRelatieAction,
+    verwijderRelatieAction
 } from "../actions";
 import { ObjectDetails } from "@/core/db/repository";
 
@@ -81,6 +82,19 @@ export default function BasismoduleClient({
 
         await voegObjectToeAction(formData);
         setNieuwObjectLabel(""); // Alleen de tekstinvoer leegmaken, isConfidential blijft behouden!
+    };
+
+    const handleVerwijderRelatie = async (relationValueId: string, label: string) => {
+        const bevestigd = window.confirm(
+            `Weet je zeker dat je de relatie met "${label}" permanent wilt verwijderen?\n\nDit kan niet ongedaan worden gemaakt.`
+        );
+
+        if (!bevestigd) return;
+
+        const res = await verwijderRelatieAction(relationValueId);
+        if (!res.success) {
+            alert("Fout bij verwijderen relatie: " + res.error);
+        }
     };
 
     return (
@@ -167,33 +181,44 @@ export default function BasismoduleClient({
                             /* 👇 overflow-y-auto en pr-1 (voor wat ruimte naast de scrollbar) toegevoegd */
                             <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
                                 {boomData.ingaand.map((item: any) => (
-                                    <li key={item.relation_value_id} className="flex items-center gap-1">         <Link
-                                        href={`/basismodule?selectedId=${item.source_id}`}
-                                        className="flex-1 p-2.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200 transition-colors flex justify-between items-center"
-                                    >
-                                        <div>
-                                            <span className="text-[10px] text-slate-400 block">Niveau -{item.depth}</span>
-                                            <span className="font-semibold text-emerald-300">
-                                                {item.source_label || "Onbekend Object"}
-                                            </span>
-                                        </div>
+                                    <li key={item.relation_value_id} className="flex items-center gap-1">
+                                        <Link
+                                            href={`/basismodule?selectedId=${item.source_id}`}
+                                            className="flex-1 p-2.5 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-200 transition-colors flex justify-between items-center"
+                                        >
+                                            <div>
+                                                <span className="text-[10px] text-slate-400 block">Niveau -{item.depth}</span>
+                                                <span className="font-semibold text-emerald-300">
+                                                    {item.source_label || "Onbekend Object"}
+                                                </span>
+                                            </div>
 
-                                        {/* BADGE INDIEN ER EEN SPLITSING ACHTER ZIT */}
-                                        {Boolean(item.childCount && item.childCount > 0) && (
-                                            <span
-                                                className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-mono font-medium"
-                                                title={`${item.childCount} vervolgobjecten op volgend niveau`}
-                                            >
-                                                +{item.childCount} relaties 🔀
-                                            </span>
-                                        )}
-                                    </Link>
+                                            {Boolean(item.childCount && item.childCount > 0) && (
+                                                <span
+                                                    className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full font-mono font-medium"
+                                                    title={`${item.childCount} vervolgobjecten op volgend niveau`}
+                                                >
+                                                    +{item.childCount} relaties 🔀
+                                                </span>
+                                            )}
+                                        </Link>
+
+                                        {/* Bekijk Details knop */}
                                         <button
                                             onClick={() => handleSelectObject(item.source_id)}
                                             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700"
                                             title="Bekijk details"
                                         >
                                             👁
+                                        </button>
+
+                                        {/* Verwijder Relatie knop */}
+                                        <button
+                                            onClick={() => handleVerwijderRelatie(item.relation_value_id, item.source_label || "Onbekend Object")}
+                                            className="p-2.5 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 rounded border border-slate-700 hover:border-red-800 transition-colors"
+                                            title="Verwijder relatie permanent"
+                                        >
+                                            🗑️
                                         </button>
                                     </li>
                                 ))}
@@ -353,6 +378,7 @@ export default function BasismoduleClient({
                                                 </span>
                                             )}
                                         </Link>
+                                        {/* Bekijk Details knop */}
                                         <button
                                             onClick={() => handleSelectObject(item.target_id)}
                                             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700 h-full"
@@ -360,8 +386,18 @@ export default function BasismoduleClient({
                                         >
                                             👁
                                         </button>
+
+                                        {/* Verwijder Relatie knop */}
+                                        <button
+                                            onClick={() => handleVerwijderRelatie(item.relation_value_id, item.target_label || "Onbekend Object")}
+                                            className="p-2.5 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 rounded border border-slate-700 hover:border-red-800 transition-colors h-full"
+                                            title="Verwijder relatie permanent"
+                                        >
+                                            🗑️
+                                        </button>
                                     </li>
                                 ))}
+
                             </ul>
                         )}
                     </div>                </div>
