@@ -7,12 +7,12 @@ import {
 
 export interface ExistingRelationItem {
   relationValueId: string;
+  relationId: string; // <-- Aangepast
   targetId: string;
   targetLabel: string;
   volgorde: number;
 }
 
-// 1. Haal de bestaande uitgaande relaties op voor het geselecteerde ouder-object
 export async function haalUitgaandeRelatiesLijstOp(
   sourceId: string
 ): Promise<ExistingRelationItem[]> {
@@ -22,12 +22,12 @@ export async function haalUitgaandeRelatiesLijstOp(
 
   return relaties.map((rel: any, index: number) => ({
     relationValueId: rel.relation_value_id,
+    relationId: rel.relation_id, // <-- Doorgeven
     targetId: rel.target_id,
     targetLabel: rel.target_label || "Naamloos object",
     volgorde: typeof rel.volgorde === "number" && rel.volgorde > 0 ? rel.volgorde : index + 1,
   }));
 }
-
 // 2. Bewaar de bijgewerkte volgordes in de database
 export async function bewaarRelatieVolgordes(
   updates: Array<{ relationValueId: string; volgorde: number }>

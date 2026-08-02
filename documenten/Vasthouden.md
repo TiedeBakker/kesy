@@ -65,3 +65,20 @@ Bij Stap 2 heb ik een groeipad voor ogen. Als we aan objecten objecttype koppele
 
 
 Wat mij betreft starten we gelijk met stap 1, als we slider-constructie voor zijpaneel eenvoudig kunnen realiseren (zodat je even hoofdscherm goed kunt bekijken) heeft dat mijn voorkeur. 
+
+# Parameter-waarden
+Voor het gebruiksvriendelijk werken met parameter-waarden is het handig als we bij een bepaald type object steeds dezelfde parameters in de zelfde volgorde kunnen toevoegen. Denk bijvoorbeeld bij een boek: titel - ondertitel - auteur(s) - categorie boek - enz. Om dit eenvoudig te realiseren wil ik parameter-sets definiëren. Daarvoor zijn volgens mij twee hulptabellen nodig:
+Parameter_sets (op Turso)
+- id
+- label
+Parameter_set_parameters (Op Turso)
+- id
+- parameter_set_id
+- parameter_id aan een object te koppelen
+- volgnr
+- is_meetwaarde
+Het laatste attribuut wil ik toevoegen om meetwaarden binnen de parameter_waarden te onderscheiden: een meetwaarde heeft geldigheid op het moment van meten, dit kunnen we eenvoudig in de parameter_waarden vastleggen door validFrom en validTo beide dezelfde waarde te geven.
+Om parameter_waarden aan een object te koppelen hebben we een formulier nodig waar we in de linker helft het object kunnen kiezen (bekende filter met dropdown), daaronder een parameter_set kunnen kiezen (ook weer via filter en drowpdown) en zonodig extra parameters kunnen toevoegen (filter uit de niet gekoppelde parameters, met ook weer dropdown).
+Rechts komt de lijst met in te vullen parameter_waarden in de volgorde van Parameter_set_parameters en aangevuld met de extra aangegeven parameters. Boven de lijst staat de datum/tijd (default nu, maar aanpasbaar) op basis waarvan validFrom (en bij meetwaarden ook validTo) wordt ingevuld. Bij alle in te vullen parameter_waarden kunnen we zonodig meetwaarde aan- of uitvinken, default uit de parameter_set wordt meegenomen. Achter elke parameter wordt de laatst bekende parameter_waarde die voor de aangegeven datum/tijd voor validFrom in de database staat.
+
+Vraagpuntje is nog hoe we de parameter_sets en Parameter_setParameters onderhouden. Ik denk in een apart formulier, misschien zo ingericht dat we het zonodig ook als modal kunnen oproepen.

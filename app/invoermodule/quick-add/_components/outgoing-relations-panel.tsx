@@ -6,6 +6,7 @@ import {
   bewaarRelatieVolgordes,
   ExistingRelationItem 
 } from "../_actions/reorder-actions";
+import { VerplaatsTargetModal } from "./verplaats-target-modal";
 
 interface OutgoingRelationsPanelProps {
   sourceId: string | null;
@@ -24,52 +25,41 @@ export function OutgoingRelationsPanel({
   const [hasChanges, setHasChanges] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!sourceId) {
-      setItems([]);
-      return;
-    }
+  // State voor de Omhang-Modal
+  const [activeMoveItem, setActiveMoveItem] = useState<ExistingRelationItem | null>(null);
 
-    let isMounted = true;
+  const fetchRelaties = () => {
+    if (!sourceId) return;
     setIsLoading(true);
-    setStatusMsg(null);
-
     haalUitgaandeRelatiesLijstOp(sourceId).then((data) => {
-      if (isMounted) {
-        setItems(data);
-        setIsLoading(false);
-        setHasChanges(false);
-      }
+      setItems(data);
+      setIsLoading(false);
+      setHasChanges(false);
     });
+  };
 
-    return () => {
-      isMounted = false;
-    };
+  useEffect(() => {
+    fetchRelaties();
   }, [sourceId, refreshTrigger]);
 
-  // ON-THE-FLY SWAP BIJ SPINNER (OF INVOER)
   const handleOrderChange = (index: number, newNum: number) => {
     const currentNum = items[index].volgorde;
     if (newNum === currentNum) return;
 
     const updated = [...items];
 
-    // Situatie 1: Waarde verlaagd (klik op spinner omlaag of lager getal getypt) -> Swap met bovenbuur
     if (newNum < currentNum && index > 0) {
       const targetIndex = index - 1;
       const temp = updated[index];
       updated[index] = updated[targetIndex];
       updated[targetIndex] = temp;
-    } 
-    // Situatie 2: Waarde verhoogd (klik op spinner omhoog of hoger getal getypt) -> Swap met onderbuur
-    else if (newNum > currentNum && index < updated.length - 1) {
+    } else if (newNum > currentNum && index < updated.length - 1) {
       const targetIndex = index + 1;
       const temp = updated[index];
       updated[index] = updated[targetIndex];
       updated[targetIndex] = temp;
     }
 
-    // Herstel/hernummer de volgordes strak opeenvolgend (1, 2, 3...)
     const hernummerd = updated.map((item, idx) => ({
       ...item,
       volgorde: idx + 1,
@@ -79,7 +69,6 @@ export function OutgoingRelationsPanel({
     setHasChanges(true);
   };
 
-  // Knop: [ ⚡ Herordenen ] -> Herschrijft de lijst strak naar 1, 2, 3...
   const handleReorder = () => {
     const hernummerd = items.map((item, index) => ({
       ...item,
@@ -89,7 +78,6 @@ export function OutgoingRelationsPanel({
     setHasChanges(true);
   };
 
-  // Knop: [ 💾 Bewaar ] -> Batch update naar DB
   const handleSave = async () => {
     if (!hasChanges || items.length === 0) return;
 
@@ -140,7 +128,6 @@ export function OutgoingRelationsPanel({
             onClick={handleReorder}
             disabled={items.length === 0}
             className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-1.5 px-3 rounded transition"
-            title="Herstel volgnummering strak naar 1, 2, 3..."
           >
             ⚡ Hernummer
           </button>
@@ -167,8 +154,9 @@ export function OutgoingRelationsPanel({
           <table className="w-full text-left text-sm border-collapse">
             <thead className="bg-gray-100 sticky top-0 z-10 text-xs text-gray-600">
               <tr>
-                <th className="p-2 w-20 text-center">Volgorde</th>
+                <th className="p-2 w-16 text-center">Volgorde</th>
                 <th className="p-2">Target Label</th>
+                <th className="p-2 w-16 text-right">Acties</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -181,11 +169,21 @@ export function OutgoingRelationsPanel({
                       onChange={(e) =>
                         handleOrderChange(index, parseInt(e.target.value) || item.volgorde)
                       }
-                      className="w-14 p-1 text-center border rounded font-mono text-sm focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                      className="w-12 p-1 text-center border rounded font-mono text-sm focus:ring-1 focus:ring-blue-500 cursor-pointer"
                     />
                   </td>
-                  <td className="p-1.5 font-medium text-gray-700 truncate max-w-[200px]">
+                  <td className="p-1.5 font-medium text-gray-700 truncate max-w-[180px]">
                     {item.targetLabel}
+                  </td>
+                  <td className="p-1.5 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setActiveMoveItem(item)}
+                      className="text-[11px] text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-gray-200 px-2 py-0.5 rounded"
+                      title="Verplaats dit target-object naar een ander ouder-object"
+                    >
+                      🚚 Verplaats
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -193,6 +191,21 @@ export function OutgoingRelationsPanel({
           </table>
         )}
       </div>
+
+      {/* Modal aanroepen bij actie */}
+      {activeMoveItem && sourceId && (
+        <VerplaatsTargetModal
+          item={activeMoveItem}
+          huidigeSourceId={sourceId}
+          huidigeSourceLabel={sourceLabel}
+          onClose={() => setActiveMoveItem(null)}
+          onSuccess={() => {
+            setStatusMsg(`✓ "${activeMoveItem.targetLabel}" succesvol verplaatst!`);
+            fetchRelaties(); // Ververs direct het overzicht
+            setTimeout(() => setStatusMsg(null), 3500);
+          }}
+        />
+      )}
 
       {/* Footer / Status */}
       {statusMsg && (
