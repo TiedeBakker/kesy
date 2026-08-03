@@ -148,47 +148,59 @@ export default function Navigation() {
         </nav>
       </header>
 
-      {/* --- MOBIELE NAVIGATION (Fixed Bottom Bar met uitgeklapte sub-links) --- */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 flex flex-col z-50">
-        {/* Eventueel uitgeklapt mobiel sub-menu boven de balk */}
-        {openDropdown && (
-          <div className="bg-slate-950 border-t border-slate-800 p-2 flex flex-col gap-1">
-            {navItems
-              .find((n) => n.name === openDropdown)
-              ?.children?.map((sub) => (
-                <Link
-                  key={sub.href}
-                  href={sub.href}
-                  onClick={() => setOpenDropdown(null)}
-                  className={`p-2 text-xs rounded text-center ${
-                    pathname === sub.href
-                      ? "bg-slate-800 text-emerald-400 font-bold"
-                      : "text-slate-300"
-                  }`}
-                >
-                  {sub.name}
-                </Link>
-              ))}
-          </div>
-        )}
+{/* --- MOBIELE NAVIGATION (Fixed Bottom Bar met Zwevend Sub-menu) --- */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 p-2 z-50">
+        <div className="relative flex justify-around items-center">
+          
+          {/* Zwevend Sub-menu voor Mobiel (Positioned boven de onderbalk) */}
+          {openDropdown && (
+            <div className="absolute bottom-full mb-3 left-2 right-2 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl p-2 flex flex-col gap-1 z-50">
+              <div className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1 border-b border-slate-800">
+                {openDropdown}
+              </div>
+              {navItems
+                .find((n) => n.name === openDropdown)
+                ?.children?.map((sub) => (
+                  <Link
+                    key={sub.href}
+                    href={sub.href}
+                    onClick={() => setOpenDropdown(null)}
+                    className={`p-2.5 text-xs rounded-md text-left transition-colors font-medium ${
+                      pathname === sub.href
+                        ? "bg-slate-800 text-emerald-400 font-bold"
+                        : "text-slate-200 hover:bg-slate-800"
+                    }`}
+                  >
+                    {sub.name}
+                  </Link>
+                ))}
+            </div>
+          )}
 
-        <div className="flex justify-around p-2">
+          {/* Onderbalk Knoppen */}
           {navItems.map((item) => {
             if (item.disabled) return null;
 
             if (item.children) {
               const active = isChildActive(item.children);
+              const isOpen = openDropdown === item.name;
+
               return (
                 <button
                   key={item.name}
-                  onClick={() =>
-                    setOpenDropdown(openDropdown === item.name ? null : item.name)
-                  }
-                  className={`flex flex-col items-center py-1 px-3 rounded-md text-xs font-medium ${
-                    active ? "text-emerald-400 font-bold" : "text-slate-400"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown(isOpen ? null : item.name);
+                  }}
+                  className={`flex flex-col items-center py-1 px-3 rounded-md text-xs font-medium transition-colors ${
+                    active || isOpen ? "text-emerald-400 font-bold" : "text-slate-400"
                   }`}
                 >
-                  <span>{item.name} ▴</span>
+                  <span className="flex items-center gap-0.5">
+                    {item.name}
+                    <span className="text-[9px]">{isOpen ? "▾" : "▴"}</span>
+                  </span>
                 </button>
               );
             }
