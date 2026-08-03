@@ -512,7 +512,7 @@ export default function ObjectDetailPanel({
 
                                             {/* Target Label */}
                                             <div className="flex-1 flex justify-between items-center min-w-0">
-                                                <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded truncate max-w-[100px]">
+                                                <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded truncate max-w-25">
                                                     ➔ {rel.relation_id}
                                                 </span>
                                                 <span className="text-slate-200 font-medium truncate ml-2">

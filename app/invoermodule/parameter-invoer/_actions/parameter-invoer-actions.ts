@@ -6,7 +6,7 @@ import {
   parameterValues,
   parameterSetParameters,
 } from "../../../../core/db/schema";
-import { eq, and, lte, desc } from "drizzle-orm";
+import { eq, and, lte, desc, isNull } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import {
   ParameterInvoerItem,
@@ -98,16 +98,69 @@ export async function bereidParameterInvoerVoor(params: {
     return [];
   }
 }
-// 2. Opslaan van alle ingevoerde parameter-waarden
+// // 2. Opslaan van alle ingevoerde parameter-waarden
+// export async function slaParameterWaardenOp(params: {
+//   targetId: string;
+//   targetType: "object" | "relation_value";
+//   datumIso: string;
+//   items: ParameterInvoerItem[];
+//   isConfidential?: boolean;
+// }) {
+//   try {
+//     // Filter alleen de items waarin daadwerkelijk een waarde is ingevuld
+//     const teVerwerkenItems = params.items.filter(
+//       (item) => item.ingevoerdeWaarde.trim() !== ""
+//     );
+
+//     if (teVerwerkenItems.length === 0) {
+//       return { success: false, error: "Geen waarden ingevuld om op te slaan." };
+//     }
+
+//     const records = teVerwerkenItems.map((item) => {
+//       const newId = uuidv7(); // UUIDv7
+//       return {
+//         id: newId,
+//         parameterId: item.parameterId,
+//         targetId: params.targetId,
+//         targetType: params.targetType,
+//         value: item.ingevoerdeWaarde,
+//         isConfidential: Boolean(params.isConfidential),
+//         validFrom: params.datumIso,
+//         // ALS HET EEN MEETWAARDE IS: validTo = validFrom (punt in de tijd event)
+//         // ANDERS: validTo = null (geldig vanaf nu tot nader order)
+//         validTo: item.isMeetwaarde ? params.datumIso : null,
+//       };
+//     });
+
+//     if (!isCloudOnly && dbLocal) {
+//       await dbLocal.insert(parameterValues).values(records);
+//     }
+//     if (dbRemote && !params.isConfidential) {
+//       await dbRemote.insert(parameterValues).values(records);
+//     }
+
+//     return { success: true, count: records.length };
+//   } catch (err: any) {
+//     console.error("Fout bij opslaan parameter waarden:", err);
+//     return { success: false, error: err?.message || "Opslaan mislukt" };
+//   }
+// }
+
+
+export interface ParameterOpslaanItem extends ParameterInvoerItem {
+  // 'historie' = Optie 4 (Nieuwe periode, oude afsluiten)
+  // 'correctie' = Optie 3 (Overschrijven van de actieve rij)
+  actieType?: "historie" | "correctie";
+}
+
 export async function slaParameterWaardenOp(params: {
   targetId: string;
   targetType: "object" | "relation_value";
   datumIso: string;
-  items: ParameterInvoerItem[];
+  items: ParameterOpslaanItem[];
   isConfidential?: boolean;
 }) {
   try {
-    // Filter alleen de items waarin daadwerkelijk een waarde is ingevuld
     const teVerwerkenItems = params.items.filter(
       (item) => item.ingevoerdeWaarde.trim() !== ""
     );
@@ -116,30 +169,92 @@ export async function slaParameterWaardenOp(params: {
       return { success: false, error: "Geen waarden ingevuld om op te slaan." };
     }
 
-    const records = teVerwerkenItems.map((item) => {
-      const newId = uuidv7(); // UUIDv7
-      return {
-        id: newId,
-        parameterId: item.parameterId,
-        targetId: params.targetId,
-        targetType: params.targetType,
-        value: item.ingevoerdeWaarde,
-        isConfidential: Boolean(params.isConfidential),
-        validFrom: params.datumIso,
-        // ALS HET EEN MEETWAARDE IS: validTo = validFrom (punt in de tijd event)
-        // ANDERS: validTo = null (geldig vanaf nu tot nader order)
-        validTo: item.isMeetwaarde ? params.datumIso : null,
-      };
-    });
+    const targetDatabases = [];
+    if (!isCloudOnly && dbLocal) targetDatabases.push(dbLocal);
+    if (dbRemote && !params.isConfidential) targetDatabases.push(dbRemote);
 
-    if (!isCloudOnly && dbLocal) {
-      await dbLocal.insert(parameterValues).values(records);
-    }
-    if (dbRemote && !params.isConfidential) {
-      await dbRemote.insert(parameterValues).values(records);
+    for (const db of targetDatabases) {
+      for (const item of teVerwerkenItems) {
+
+        // 🔍 ZOEK HUIDIGE ACTIEVE WAARDE (waar validTo IS NULL is)
+        const [actieveWaarde] = await db
+          .select()
+          .from(parameterValues)
+          .where(
+            and(
+              eq(parameterValues.targetId, params.targetId),
+              eq(parameterValues.parameterId, item.parameterId),
+              isNull(parameterValues.validTo) // 👈 CRUCIAAL: alleen de nog geopende/actieve periode!
+            )
+          )
+          .orderBy(desc(parameterValues.validFrom))
+          .limit(1);
+
+        const isActiefMeetwaarde =
+          actieveWaarde && actieveWaarde.validFrom === actieveWaarde.validTo;
+
+        // --- OPTIE 3: Correctie (Overschrijven van de actieve rij) ---
+        if (
+          actieveWaarde &&
+          !isActiefMeetwaarde &&
+          item.actieType === "correctie"
+        ) {
+          await db
+            .update(parameterValues)
+            .set({
+              value: item.ingevoerdeWaarde,
+              // Optioneel: als de datum ook is aangepast bij correctie
+              validFrom: params.datumIso
+            })
+            .where(eq(parameterValues.id, actieveWaarde.id));
+
+          continue;
+        }
+
+        // --- OPTIE 4: Nieuwe historie (Oude periode sluiten & Nieuwe openen) ---
+        if (
+          actieveWaarde &&
+          !isActiefMeetwaarde &&
+          (item.actieType === "historie" || !item.actieType)
+        ) {
+          // 1. Aantal miliseconden/seconden correct afsluiten:
+          // De oude periode stopt PRECIES op de nieuwe peildatum
+          await db
+            .update(parameterValues)
+            .set({ validTo: params.datumIso }) // 👈 DIT SLUIT DE OUDE RIJ AF!
+            .where(eq(parameterValues.id, actieveWaarde.id));
+
+          // 2. Nieuwe periode starten met validTo = NULL
+          await db.insert(parameterValues).values({
+            id: uuidv7(),
+            parameterId: item.parameterId,
+            targetId: params.targetId,
+            targetType: params.targetType,
+            value: item.ingevoerdeWaarde,
+            isConfidential: Boolean(params.isConfidential),
+            validFrom: params.datumIso,
+            validTo: null, // 👈 De nieuwe rij heeft geen einddatum
+          });
+
+          continue;
+        }
+
+        // --- OPTIE 1 & 2: Geen eerdere actieve rij OF het is een Meetwaarde ---
+        await db.insert(parameterValues).values({
+          id: uuidv7(),
+          parameterId: item.parameterId,
+          targetId: params.targetId,
+          targetType: params.targetType,
+          value: item.ingevoerdeWaarde,
+          isConfidential: Boolean(params.isConfidential),
+          validFrom: params.datumIso,
+          // Meetwaarde: validTo == validFrom. Geen meetwaarde: validTo == null
+          validTo: item.isMeetwaarde ? params.datumIso : null,
+        });
+      }
     }
 
-    return { success: true, count: records.length };
+    return { success: true, count: teVerwerkenItems.length };
   } catch (err: any) {
     console.error("Fout bij opslaan parameter waarden:", err);
     return { success: false, error: err?.message || "Opslaan mislukt" };

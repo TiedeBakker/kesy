@@ -31,4 +31,6 @@ export interface ParameterInvoerItem {
   laatstBekendeWaarde?: string | null;
   laatstBekendeDatum?: string | null;
   isExtraParameter?: boolean; // True als handmatig toegevoegd buiten de set
+  // Keuze bij bestaande niet-meetwaarde: "historie" (standaard) of "correctie"
+  actieType?: "historie" | "correctie";
 }
