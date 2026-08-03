@@ -83,3 +83,21 @@ export const units = sqliteTable("units", {
   label: text("label").notNull(),
   symbol: text("symbol").notNull(),
 });
+
+//
+// 7. PARAMETER SETS (Presets / sjablonen voor gecombineerde parameters)
+//
+export const parameterSets = sqliteTable("parameter_sets", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+});
+
+export const parameterSetParameters = sqliteTable("parameter_set_parameters", {
+  id: text("id").primaryKey(),
+  parameterSetId: text("parameter_set_id").notNull(),
+  parameterId: text("parameter_id").notNull(),
+  volgnr: integer("volgnr").notNull().default(1),
+  isMeetwaarde: integer("is_meetwaarde", { mode: "boolean" })
+    .notNull()
+    .default(false),
+});

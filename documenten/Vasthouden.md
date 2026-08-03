@@ -82,3 +82,11 @@ Om parameter_waarden aan een object te koppelen hebben we een formulier nodig wa
 Rechts komt de lijst met in te vullen parameter_waarden in de volgorde van Parameter_set_parameters en aangevuld met de extra aangegeven parameters. Boven de lijst staat de datum/tijd (default nu, maar aanpasbaar) op basis waarvan validFrom (en bij meetwaarden ook validTo) wordt ingevuld. Bij alle in te vullen parameter_waarden kunnen we zonodig meetwaarde aan- of uitvinken, default uit de parameter_set wordt meegenomen. Achter elke parameter wordt de laatst bekende parameter_waarde die voor de aangegeven datum/tijd voor validFrom in de database staat.
 
 Vraagpuntje is nog hoe we de parameter_sets en Parameter_setParameters onderhouden. Ik denk in een apart formulier, misschien zo ingericht dat we het zonodig ook als modal kunnen oproepen.
+
+## Stappen:
+🗺️ Stappenplan (In kleine, testbare stappen)Om dit overzichtelijk en zonder bugs op te bouwen, stel ik voor om het in de volgende stappen uit te voeren:StapOmschrijvingStatusStap 
+### Schema & Database-migratie (parameter_sets & parameter_set_parameters toevoegen aan Drizzle schema)⏳ Eerstvolgende stap
+### Stap 2 Backend Actions voor Beheer (CRUD operaties voor Sets en Set-Parameters)
+### ⏹️Stap 3Beheerscherm / Modal voor Parameter Sets (Sets aanmaken, parameters koppelen & volgorde bepalen)
+### ⏹️Stap 4Invoerscherm Backend (Queries voor ophalen van Sets, Parameters en Laatst bekende waarden)
+### ⏹️Stap 5Invoerscherm Frontend (Links: Object/Set/Extra selectie | Rechts: Datum + Dynamische invullijst)⏹️
