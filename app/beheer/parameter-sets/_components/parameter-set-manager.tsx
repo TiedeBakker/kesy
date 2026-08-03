@@ -24,11 +24,11 @@ export function ParameterSetManager({ beschikbareParameters }: ParameterSetManag
   const [sets, setSets] = useState<ParameterSet[]>([]);
   const [selectedSetId, setSelectedSetId] = useState<string>("");
   const [setItems, setSetItems] = useState<ParameterSetItem[]>([]);
-  
+
   const [nieuwSetLabel, setNieuwSetLabel] = useState("");
   const [selectedParameterToAdd, setSelectedParameterToAdd] = useState("");
   const [isMeetwaarde, setIsMeetwaarde] = useState(false);
-  
+
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   // Load sets op startup
@@ -37,12 +37,18 @@ export function ParameterSetManager({ beschikbareParameters }: ParameterSetManag
   }, []);
 
   // Load items zodra er een set geselecteerd is
+  // Load items zodra er een set geselecteerd is
   useEffect(() => {
-    if (selectedSetId) {
-      verversSetItems(selectedSetId);
-    } else {
-      setSetItems([]);
+    async function ververs() {
+      if (selectedSetId) {
+        setSetItems([]); // 👈 Maak eerst leeg zodat de oude items direct verdwijnen!
+        const items = await haalParameterSetItemsOp(selectedSetId);
+        setSetItems(items);
+      } else {
+        setSetItems([]);
+      }
     }
+    ververs();
   }, [selectedSetId]);
 
   const verversSets = async () => {
@@ -215,8 +221,12 @@ export function ParameterSetManager({ beschikbareParameters }: ParameterSetManag
                     {setItems.map((item, idx) => (
                       <tr key={item.id} className="hover:bg-gray-50">
                         <td className="p-2 text-center font-mono text-gray-400">{idx + 1}</td>
-                        <td className="p-2 font-medium text-gray-800">{item.parameterLabel}</td>
-                        <td className="p-2 font-mono text-gray-500">{item.parameterCode}</td>
+                        <td className="p-2 font-medium text-gray-800">
+                          {item.parameterLabel || <span className="text-gray-400 italic">Onbekend</span>}
+                        </td>
+                        <td className="p-2 font-mono text-gray-500">
+                          {item.parameterCode || "-"}
+                        </td>
                         <td className="p-2 text-center">
                           {item.isMeetwaarde ? (
                             <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-semibold">

@@ -6,10 +6,10 @@ import { eq, asc } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid"; // UUIDv7 voor unieke IDs
 import { ParameterSet, ParameterSetItem } from "../../../invoermodule/parameter-invoer/_types/parameter-set-types";
 
-// 1. Ophalen van alle Parameter Sets (voor de dropdowns)
+// 1. Ophalen van alle Parameter Sets
 export async function haalParameterSetsOp(): Promise<ParameterSet[]> {
   try {
-    const db = dbLocal || dbRemote;
+    const db = dbRemote || dbLocal;
     if (!db) return [];
     
     return await db.select().from(parameterSets).orderBy(parameterSets.label);
@@ -18,13 +18,13 @@ export async function haalParameterSetsOp(): Promise<ParameterSet[]> {
     return [];
   }
 }
-
-// 2. Ophalen van alle parameters binnen een specifieke set (inclusief details uit 'parameters')
+// 2. Ophalen van items binnen een set (INCLUSIEF Turso join op parameters)
 export async function haalParameterSetItemsOp(setId: string): Promise<ParameterSetItem[]> {
   if (!setId) return [];
   
   try {
-    const db = dbLocal || dbRemote;
+    // Parameters en Sets zijn publiek/centraal -> lees via Turso / Remote
+    const db = dbRemote || dbLocal;
     if (!db) return [];
 
     const result = await db
@@ -34,6 +34,7 @@ export async function haalParameterSetItemsOp(setId: string): Promise<ParameterS
         parameterId: parameterSetParameters.parameterId,
         volgnr: parameterSetParameters.volgnr,
         isMeetwaarde: parameterSetParameters.isMeetwaarde,
+        // Haal expliciet het label en de code op uit de parameters tabel:
         parameterLabel: parameters.label,
         parameterCode: parameters.code,
         dataType: parameters.dataType,
