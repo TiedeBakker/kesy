@@ -634,3 +634,4 @@ export async function voegParameterWaardeToeMetBeveiliging(
     isConfidential,
   });
 }
+export { objects, relations, relationValues, parameters, parameterValues, units } from "./schema";
