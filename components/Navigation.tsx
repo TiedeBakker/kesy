@@ -23,13 +23,14 @@ const navItems: NavItem[] = [
     name: "Invoermodule",
     children: [
       { name: "Parameter Invoer", href: "/invoermodule/parameter-invoer" },
-      { name: "Quick Add (Sneltoevegen)", href: "/invoermodule/quick-add" },
+      { name: "Quick Add (Sneltoevoegen)", href: "/invoermodule/quick-add" },
     ],
   },
   {
     name: "Beheer",
     children: [
       { name: "Parameter Sets", href: "/beheer/parameter-sets" },
+      { name: "Taxonomie (COL)", href: "/beheer/taxonomie" },
     ],
   },
   { name: "Analyse", href: "/analyse", disabled: true },

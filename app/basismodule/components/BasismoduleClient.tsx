@@ -1,4 +1,4 @@
-// app/basismodule/BasismoduleClient.tsx
+// app/basismodule/components/BasismoduleClient.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -21,6 +21,8 @@ interface BasismoduleClientProps {
     centraalObject: any;
     boomData: { ingaand: any[]; uitgaand: any[] };
     selectedId?: string;
+    pageIngaand?: number;   // <-- NIEUW
+    pageUitgaand?: number;  // <-- NIEUW
 }
 
 export default function BasismoduleClient({
@@ -29,6 +31,8 @@ export default function BasismoduleClient({
     centraalObject,
     boomData,
     selectedId,
+    pageIngaand = 1,   // <-- NIEUW: met default 1
+    pageUitgaand = 1,  // <-- NIEUW: met default 1
 }: BasismoduleClientProps) {
     const [selectedDetails, setSelectedDetails] = useState<ObjectDetails | null>(null);
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -81,7 +85,7 @@ export default function BasismoduleClient({
         }
 
         await voegObjectToeAction(formData);
-        setNieuwObjectLabel(""); // Alleen de tekstinvoer leegmaken, isConfidential blijft behouden!
+        setNieuwObjectLabel("");
     };
 
     const handleVerwijderRelatie = async (relationValueId: string, label: string) => {
@@ -172,13 +176,20 @@ export default function BasismoduleClient({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* KOLOM 1: INGAANDE BOOM */}
                     <div className="p-4 bg-slate-900/60 rounded-lg border border-slate-800 space-y-3 flex flex-col max-h-[400px]">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                            &larr; Ingaande Objecten (Bron)
-                        </h3>
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                                &larr; Ingaande Objecten (Bron)
+                            </h3>
+                            {boomData.ingaand.length > 0 && (
+                                <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-2 py-0.5 rounded-full font-mono font-medium shadow-sm">
+                                    {boomData.ingaand.length} getoond
+                                </span>
+                            )}
+                        </div>
+
                         {boomData.ingaand.length === 0 ? (
-                            <p className="text-xs text-slate-500 italic">Geen ingaande relaties.</p>
+                            <p className="text-xs text-slate-500 italic flex-1">Geen ingaande relaties.</p>
                         ) : (
-                            /* 👇 overflow-y-auto en pr-1 (voor wat ruimte naast de scrollbar) toegevoegd */
                             <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
                                 {boomData.ingaand.map((item: any) => (
                                     <li key={item.relation_value_id} className="flex items-center gap-1">
@@ -203,7 +214,6 @@ export default function BasismoduleClient({
                                             )}
                                         </Link>
 
-                                        {/* Bekijk Details knop */}
                                         <button
                                             onClick={() => handleSelectObject(item.source_id)}
                                             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700"
@@ -212,7 +222,6 @@ export default function BasismoduleClient({
                                             👁
                                         </button>
 
-                                        {/* Verwijder Relatie knop */}
                                         <button
                                             onClick={() => handleVerwijderRelatie(item.relation_value_id, item.source_label || "Onbekend Object")}
                                             className="p-2.5 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 rounded border border-slate-700 hover:border-red-800 transition-colors"
@@ -224,6 +233,23 @@ export default function BasismoduleClient({
                                 ))}
                             </ul>
                         )}
+
+                        {/* Paginering onderaan Kolom 1 */}
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-800 text-xs">
+                            <Link
+                                href={`/basismodule?selectedId=${centraalObject.id}&pageIngaand=${Math.max(1, pageIngaand - 1)}&pageUitgaand=${pageUitgaand}`}
+                                className={`px-2.5 py-1 bg-slate-800 rounded border border-slate-700 text-slate-300 hover:bg-slate-700 ${pageIngaand <= 1 ? "opacity-40 pointer-events-none" : ""}`}
+                            >
+                                &larr; Vorige
+                            </Link>
+                            <span className="text-[10px] text-slate-400">Pagina {pageIngaand}</span>
+                            <Link
+                                href={`/basismodule?selectedId=${centraalObject.id}&pageIngaand=${pageIngaand + 1}&pageUitgaand=${pageUitgaand}`}
+                                className={`px-2.5 py-1 bg-slate-800 rounded border border-slate-700 text-slate-300 hover:bg-slate-700 ${boomData.ingaand.length < 50 ? "opacity-40 pointer-events-none" : ""}`}
+                            >
+                                Volgende &rarr;
+                            </Link>
+                        </div>
                     </div>
 
                     {/* KOLOM 2: CENTRAAL OBJECT */}
@@ -278,7 +304,6 @@ export default function BasismoduleClient({
                                     </div>
                                 </form>
                             ) : (
-                                /* REGULIER RELATIE FORMULIER */
                                 <form action={voegRelatieToe} className="space-y-2">
                                     <input type="hidden" name="sourceId" value={centraalObject.id} />
 
@@ -318,22 +343,28 @@ export default function BasismoduleClient({
 
                     {/* KOLOM 3: UITGAANDE BOOM */}
                     <div className="p-4 bg-slate-900/60 rounded-lg border border-slate-800 space-y-3 flex flex-col max-h-[400px]">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                            Uitgaande Objecten (Doel) &rarr;
-                        </h3>
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                                Uitgaande Objecten (Doel) &rarr;
+                            </h3>
+                            {boomData.uitgaand.length > 0 && (
+                                <span className="text-[10px] bg-slate-800 text-emerald-400 border border-slate-700 px-2 py-0.5 rounded-full font-mono font-medium shadow-sm">
+                                    {boomData.uitgaand.length} getoond
+                                </span>
+                            )}
+                        </div>
+
                         {boomData.uitgaand.length === 0 ? (
-                            <p className="text-xs text-slate-500 italic">Geen uitgaande relaties.</p>
+                            <p className="text-xs text-slate-500 italic flex-1">Geen uitgaande relaties.</p>
                         ) : (
                             <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
                                 {boomData.uitgaand.map((item: any, idx: number) => (
                                     <li key={item.relation_value_id} className="flex items-center gap-1">
-                                        {/* Sorteer knoppen */}
                                         <div className="flex flex-col bg-slate-800 rounded border border-slate-700 overflow-hidden">
                                             <button
                                                 disabled={idx === 0}
                                                 onClick={async () => {
                                                     await verplaatsRelatieAction(item.relation_value_id, centraalObject.id, "up");
-                                                    // Indien het detailpaneel open staat voor dit object, ververs dit direct
                                                     if (selectedDetails?.object.id === centraalObject.id) {
                                                         handleSelectObject(centraalObject.id);
                                                     }
@@ -378,7 +409,7 @@ export default function BasismoduleClient({
                                                 </span>
                                             )}
                                         </Link>
-                                        {/* Bekijk Details knop */}
+
                                         <button
                                             onClick={() => handleSelectObject(item.target_id)}
                                             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 rounded border border-slate-700 h-full"
@@ -387,7 +418,6 @@ export default function BasismoduleClient({
                                             👁
                                         </button>
 
-                                        {/* Verwijder Relatie knop */}
                                         <button
                                             onClick={() => handleVerwijderRelatie(item.relation_value_id, item.target_label || "Onbekend Object")}
                                             className="p-2.5 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-400 rounded border border-slate-700 hover:border-red-800 transition-colors h-full"
@@ -397,10 +427,27 @@ export default function BasismoduleClient({
                                         </button>
                                     </li>
                                 ))}
-
                             </ul>
                         )}
-                    </div>                </div>
+
+                        {/* Paginering onderaan Kolom 3 */}
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-800 text-xs">
+                            <Link
+                                href={`/basismodule?selectedId=${centraalObject.id}&pageIngaand=${pageIngaand}&pageUitgaand=${Math.max(1, pageUitgaand - 1)}`}
+                                className={`px-2.5 py-1 bg-slate-800 rounded border border-slate-700 text-slate-300 hover:bg-slate-700 ${pageUitgaand <= 1 ? "opacity-40 pointer-events-none" : ""}`}
+                            >
+                                &larr; Vorige
+                            </Link>
+                            <span className="text-[10px] text-slate-400">Pagina {pageUitgaand}</span>
+                            <Link
+                                href={`/basismodule?selectedId=${centraalObject.id}&pageIngaand=${pageIngaand}&pageUitgaand=${pageUitgaand + 1}`}
+                                className={`px-2.5 py-1 bg-slate-800 rounded border border-slate-700 text-slate-300 hover:bg-slate-700 ${boomData.uitgaand.length < 50 ? "opacity-40 pointer-events-none" : ""}`}
+                            >
+                                Volgende &rarr;
+                            </Link>
+                        </div>
+                    </div>
+                </div>
             ) : (
                 <div className="p-8 text-center bg-slate-900/40 rounded-lg border border-dashed border-slate-800 text-slate-500">
                     <p>Kies hierboven een object om het centraal te stellen en door de boom te navigeren.</p>

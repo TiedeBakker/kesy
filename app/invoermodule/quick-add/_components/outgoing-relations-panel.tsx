@@ -1,3 +1,4 @@
+// app/invoermodule/quick-add/_components/outgoing-relations-panel.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -25,13 +26,22 @@ export function OutgoingRelationsPanel({
   const [hasChanges, setHasChanges] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
+  // Paginering state
+  const [page, setPage] = useState(1);
+  const pageSize = 1000;
+
   // State voor de Omhang-Modal
   const [activeMoveItem, setActiveMoveItem] = useState<ExistingRelationItem | null>(null);
+
+  // Reset pagina naar 1 bij verandering van geselecteerde sourceId
+  useEffect(() => {
+    setPage(1);
+  }, [sourceId]);
 
   const fetchRelaties = () => {
     if (!sourceId) return;
     setIsLoading(true);
-    haalUitgaandeRelatiesLijstOp(sourceId).then((data) => {
+    haalUitgaandeRelatiesLijstOp(sourceId, page, pageSize).then((data) => {
       setItems(data);
       setIsLoading(false);
       setHasChanges(false);
@@ -40,7 +50,7 @@ export function OutgoingRelationsPanel({
 
   useEffect(() => {
     fetchRelaties();
-  }, [sourceId, refreshTrigger]);
+  }, [sourceId, refreshTrigger, page]); // <-- herlaad wanneer 'page' veranderd
 
   const handleOrderChange = (index: number, newNum: number) => {
     const currentNum = items[index].volgorde;
@@ -60,9 +70,10 @@ export function OutgoingRelationsPanel({
       updated[targetIndex] = temp;
     }
 
+    const startVolgorde = (page - 1) * pageSize + 1;
     const hernummerd = updated.map((item, idx) => ({
       ...item,
-      volgorde: idx + 1,
+      volgorde: startVolgorde + idx,
     }));
 
     setItems(hernummerd);
@@ -70,9 +81,10 @@ export function OutgoingRelationsPanel({
   };
 
   const handleReorder = () => {
+    const startVolgorde = (page - 1) * pageSize + 1;
     const hernummerd = items.map((item, index) => ({
       ...item,
-      volgorde: index + 1,
+      volgorde: startVolgorde + index,
     }));
     setItems(hernummerd);
     setHasChanges(true);
@@ -115,7 +127,7 @@ export function OutgoingRelationsPanel({
       <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
         <div>
           <h3 className="font-semibold text-sm text-gray-800">
-            Uitgaande Relaties ({items.length})
+            Uitgaande Relaties ({items.length} getoond)
           </h3>
           <p className="text-xs text-gray-500 truncate max-w-[280px]">
             Van: <span className="font-medium text-gray-700">{sourceLabel}</span>
@@ -148,7 +160,7 @@ export function OutgoingRelationsPanel({
           <div className="p-8 text-center text-gray-400 text-sm">Laden...</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-gray-400 text-sm">
-            Dit object heeft nog geen uitgaande relaties.
+            {page > 1 ? "Geen verdere relaties op deze pagina." : "Dit object heeft nog geen uitgaande relaties."}
           </div>
         ) : (
           <table className="w-full text-left text-sm border-collapse">
@@ -201,15 +213,37 @@ export function OutgoingRelationsPanel({
           onClose={() => setActiveMoveItem(null)}
           onSuccess={() => {
             setStatusMsg(`✓ "${activeMoveItem.targetLabel}" succesvol verplaatst!`);
-            fetchRelaties(); // Ververs direct het overzicht
+            fetchRelaties();
             setTimeout(() => setStatusMsg(null), 3500);
           }}
         />
       )}
 
-      {/* Footer / Status */}
+      {/* Footer / Paginering & Status */}
+      <div className="p-2 border-t bg-gray-50 flex justify-between items-center text-xs">
+        <button
+          type="button"
+          disabled={page <= 1 || isLoading}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          className="px-2.5 py-1 bg-white border rounded text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+        >
+          &larr; Vorige
+        </button>
+
+        <span className="text-gray-500 font-medium">Pagina {page}</span>
+
+        <button
+          type="button"
+          disabled={items.length < pageSize || isLoading}
+          onClick={() => setPage((p) => p + 1)}
+          className="px-2.5 py-1 bg-white border rounded text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+        >
+          Volgende &rarr;
+        </button>
+      </div>
+
       {statusMsg && (
-        <div className="p-2 text-xs text-center border-t bg-gray-50 font-medium">
+        <div className="p-2 text-xs text-center border-t bg-blue-50 text-blue-800 font-medium">
           {statusMsg}
         </div>
       )}

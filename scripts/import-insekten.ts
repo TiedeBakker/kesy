@@ -127,8 +127,8 @@ async function runImport() {
         relationValuesToInsert.push({
             id: uuidv7(),
             relationId: OBJECT_TYPE_RELATION_ID,
-            sourceId: specimenGroupId,
-            targetId: TYPE_SPECIMENGROEP_ID,
+            sourceId: TYPE_SPECIMENGROEP_ID,
+            targetId: specimenGroupId,
             volgorde: 0,
             isConfidential: false,
             validFrom: now,

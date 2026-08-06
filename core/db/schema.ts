@@ -101,3 +101,15 @@ export const parameterSetParameters = sqliteTable("parameter_set_parameters", {
     .notNull()
     .default(false),
 });
+
+//
+// 8. RELEVANTE TAXA (Stamgegevens gecached vanuit COL)
+//
+export const relevanteTaxa = sqliteTable("relevante_taxa", {
+  id: text("id").primaryKey(),
+  taxonNaam: text("taxon_naam").notNull(),
+  taxonLevel: text("taxon_level"), // species, genus, family, etc.
+  colIdentifier: text("col_identifier"),
+  gbifIdentifier: text("gbif_identifier"),
+  nlNaam: text("nl_naam"),
+});
