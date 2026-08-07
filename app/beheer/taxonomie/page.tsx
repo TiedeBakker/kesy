@@ -48,7 +48,7 @@ export default function TaxonomieBeheerPage() {
     laadData();
   }, []);
 
-  // De batch loop
+ // De bijgewerkte batch loop
   const startValidation = async (forceRevalidation: boolean) => {
     setIsProcessing(true);
     setProcessedCount(0);
@@ -57,6 +57,7 @@ export default function TaxonomieBeheerPage() {
     let isDone = false;
     let total = 0;
     let currentProcessed = 0;
+    let allProcessedIds: string[] = [];
 
     while (!isDone) {
       try {
@@ -64,8 +65,9 @@ export default function TaxonomieBeheerPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            batchSize: 15, // Aantal items per batch (aanpasbaar)
+            batchSize: 15,
             forceRevalidation,
+            processedIds: allProcessedIds, // Stuur reeds verwerkte IDs mee
           }),
         });
 
@@ -81,14 +83,18 @@ export default function TaxonomieBeheerPage() {
           setTotalToProcess(total);
         }
 
-        if (total === 0) {
-          // Niks te verwerken
+        if (total === 0 || data.verwerktInDezeBatch === 0) {
           isDone = true;
           break;
         }
 
         currentProcessed += data.verwerktInDezeBatch;
         setProcessedCount(currentProcessed);
+        
+        // Houd bij welke IDs al verwerkt zijn
+        if (data.verwerkteIds) {
+          allProcessedIds = [...allProcessedIds, ...data.verwerkteIds];
+        }
 
         setBatchStats((prev) => ({
           actueel: prev.actueel + data.stats.actueel,
@@ -106,7 +112,7 @@ export default function TaxonomieBeheerPage() {
     }
 
     setIsProcessing(false);
-    await laadData(); // Ververs het overzicht
+    await laadData(); // Herlaad tabel direct na voltooien
   };
 
   // Gefilterde lijst voor de tabel
@@ -196,23 +202,24 @@ export default function TaxonomieBeheerPage() {
         </div>
       </div>
 
-      {/* Tabel met Filters */}
-      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+      {/* Tabel met Filters & Scrollbare container */}
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col">
+        {/* Tabel Header / Filterbalk */}
+        <div className="p-4 border-b bg-slate-50 flex justify-between items-center shrink-0">
           <h2 className="font-semibold text-slate-700">Specimen Overzicht</h2>
           <div className="flex gap-2">
             <button
               onClick={() => setFilter("ALLES")}
-              className={`px-3 py-1 rounded-md text-xs font-medium ${
-                filter === "ALLES" ? "bg-slate-800 text-white" : "bg-white border text-slate-600"
+              className={`px-3 py-1 rounded-md text-xs font-medium transition ${
+                filter === "ALLES" ? "bg-slate-800 text-white" : "bg-white border text-slate-600 hover:bg-slate-100"
               }`}
             >
-              Alles
+              Alles ({specimenLijst.length})
             </button>
             <button
               onClick={() => setFilter("NIET_GEVALIDEERD")}
-              className={`px-3 py-1 rounded-md text-xs font-medium ${
-                filter === "NIET_GEVALIDEERD" ? "bg-slate-800 text-white" : "bg-white border text-slate-600"
+              className={`px-3 py-1 rounded-md text-xs font-medium transition ${
+                filter === "NIET_GEVALIDEERD" ? "bg-slate-800 text-white" : "bg-white border text-slate-600 hover:bg-slate-100"
               }`}
             >
               Nog te valideren
@@ -220,19 +227,22 @@ export default function TaxonomieBeheerPage() {
           </div>
         </div>
 
+        {/* Scrollbare Inhouds-container */}
         {isLaden ? (
           <div className="p-8 text-center text-slate-400">Specimen laden...</div>
         ) : gefilterdeLijst.length === 0 ? (
           <div className="p-8 text-center text-slate-400">Geen specimen gevonden voor dit filter.</div>
         ) : (
-          <div className="overflow-x-auto">
+          /* 💡 NIEUW: max-h-[600px] + overflow-y-auto maakt de tabel scrollbaar binnen het venster */
+          <div className="overflow-x-auto overflow-y-auto max-h-[600px] relative">
             <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-slate-100 text-slate-600 text-xs uppercase">
-                  <th className="p-3">Specimen</th>
-                  <th className="p-3">Gegeven Taxon Naam</th>
-                  <th className="p-3">Formele Taxon Naam (COL)</th>
-                  <th className="p-3">Laatste Controle</th>
+              {/* 💡 NIEUW: sticky top-0 zorgt dat de kolomtitels vast blijven staan tijdens scrollen */}
+              <thead className="sticky top-0 z-10 bg-slate-100 border-b text-slate-600 text-xs uppercase shadow-sm">
+                <tr>
+                  <th className="p-3 bg-slate-100">Specimen</th>
+                  <th className="p-3 bg-slate-100">Gegeven Taxon Naam</th>
+                  <th className="p-3 bg-slate-100">Formele Taxon Naam (COL)</th>
+                  <th className="p-3 bg-slate-100">Laatste Controle</th>
                 </tr>
               </thead>
               <tbody className="divide-y">

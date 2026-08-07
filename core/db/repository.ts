@@ -684,22 +684,23 @@ export async function zoekRelevantTaxonOpNaam(naam: string) {
 /**
  * Voegt een nieuw gecachet taxon toe aan RelevanteTaxa (geschreven naar dbRemote/Turso)
  */
+
 export async function voegRelevantTaxonToe(data: {
-    taxonNaam: string;
-    taxonLevel?: string;
-    colIdentifier?: string;
+  taxonNaam: string;
+  taxonLevel?: string;
+  colIdentifier?: string;
+  nlNaam?: string; // <-- Toegevoegd
 }) {
-    const targetDb = dbRemote || dbLocal;
-    if (!targetDb) return null;
+  const targetDb = dbRemote || dbLocal;
+  if (!targetDb) return null;
 
-    const id = uuidv7();
-    await targetDb.insert(relevanteTaxa).values({
-        id,
-        ...data,
-    });
-    return id;
+  const id = uuidv7();
+  await targetDb.insert(relevanteTaxa).values({
+    id,
+    ...data,
+  });
+  return id;
 }
-
 /**
  * Haalt alle specimen op die beschikken over de parameter 'Gegeven Taxon Naam'
  * inclusief hun eventuele huidige 'Formele taxonnaam' parameter
@@ -741,5 +742,15 @@ export async function haalAlleSpecimenTaxaOp() {
         formeleTaxonNaam?: string;
         laatsteControle?: string;
     }>(query);
+}
+
+export async function updateRelevantTaxonNlNaam(id: string, nlNaam: string) {
+  const targetDb = dbRemote || dbLocal;
+  if (!targetDb) return;
+
+  await targetDb
+    .update(relevanteTaxa)
+    .set({ nlNaam })
+    .where(eq(relevanteTaxa.id, id));
 }
 export { objects, relations, relationValues, parameters, parameterValues, units, relevanteTaxa } from "./schema";

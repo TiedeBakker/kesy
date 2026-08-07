@@ -1,135 +1,157 @@
 // kesy/app/api/beheer/validate-taxa/route.ts
 import { NextResponse } from "next/server";
 import {
-  haalAlleSpecimenTaxaOp,
-  zoekRelevantTaxonOpNaam,
-  voegRelevantTaxonToe,
-  voegParameterWaardeToeMetBeveiliging,
-  vernieuwParameterWaardeMetHistorie,
+    haalAlleSpecimenTaxaOp,
+    zoekRelevantTaxonOpNaam,
+    voegRelevantTaxonToe,
+    voegParameterWaardeToeMetBeveiliging,
+    vernieuwParameterWaardeMetHistorie,
+    updateRelevantTaxonNlNaam,
 } from "@/core/db/repository";
 import { valideerTaxonMetCOL } from "@/lib/services/colService";
+import { haalNederlandseNaamOpViaGBIF } from "@/lib/services/gbifService"; // <-- NIEUW
 
 const PARAM_FORMELE_TAXON_NAAM_ID = "019fd14a-991d-7265-b929-8da2ee294507";
 
-// 1. GET HANDLER (voor het laden van de pagina)
 export async function GET() {
-  try {
-    const specimen = await haalAlleSpecimenTaxaOp();
-    return NextResponse.json({ success: true, specimen });
-  } catch (error) {
-    console.error("Fout bij ophalen van specimen taxa:", error);
-    return NextResponse.json(
-      { success: false, error: "Fout bij ophalen specimen" },
-      { status: 500 }
-    );
-  }
+    try {
+        const specimen = await haalAlleSpecimenTaxaOp();
+        return NextResponse.json({ success: true, specimen });
+    } catch (error) {
+        console.error("Fout bij ophalen van specimen taxa:", error);
+        return NextResponse.json(
+            { success: false, error: "Fout bij ophalen specimen" },
+            { status: 500 }
+        );
+    }
 }
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const batchSize = body.batchSize || 20; // Standaard 20 items per call om API limits te respecteren
-    const forceRevalidation = Boolean(body.forceRevalidation); // True = her-valideer ALLES
+    try {
+        const body = await req.json();
+        const batchSize = body.batchSize || 15;
+        const forceRevalidation = Boolean(body.forceRevalidation);
+        const processedIds: string[] = body.processedIds || []; // IDs die in eerdere batches al zijn geweest
 
-    // 1. Haal alle specimen met een gegeven taxonnaam op uit de database
-    const alleSpecimen = await haalAlleSpecimenTaxaOp();
+        // 1. Haal alle specimen op
+        const alleSpecimen = await haalAlleSpecimenTaxaOp();
 
-    // 2. Filter de specimen die verwerkt moeten worden
-    const teVerwerken = alleSpecimen.filter((item) => {
-      if (forceRevalidation) return true; // Bij her-controle pakken we alles
-      // Anders alleen degene die nog GEEN formele naam hebben óf die op 'niet bekend' staan
-      return !item.formeleTaxonNaam || item.formeleTaxonNaam === "niet bekend in COL";
-    });
+        // 2. Filter: negeer al verwerkte IDs in deze huidige sessie
+        const teVerwerken = alleSpecimen.filter((item) => {
+            if (processedIds.includes(item.objectId)) return false;
 
-    // Pak enkel het aantal items voor deze specifieke batch
-    const huidigeBatch = teVerwerken.slice(0, batchSize);
+            if (forceRevalidation) return true;
+            // Alleen verwerken als er nog helemaal geen controle is geweest
+            return !item.formeleTaxonNaam;
+        });
 
-    let verwerktCount = 0;
-    let actueelCount = 0;
-    let synoniemCount = 0;
-    let nietGevondenCount = 0;
+        const huidigeBatch = teVerwerken.slice(0, batchSize);
 
-    // Cache in-memory voor deze batch om dubbele API calls te voorkomen
-    const colCache = new Map<string, Awaited<ReturnType<typeof valideerTaxonMetCOL>>>();
+        let verwerktCount = 0;
+        let actueelCount = 0;
+        let synoniemCount = 0;
+        let nietGevondenCount = 0;
+        const zojuistVerwerktIds: string[] = [];
 
-    for (const item of huidigeBatch) {
-      const gegevenNaam = item.gegevenTaxonNaam;
-      let colResult;
+        const colCache = new Map<string, Awaited<ReturnType<typeof valideerTaxonMetCOL>>>();
 
-      // Controleer eerst de lokale batch-cache
-      if (colCache.has(gegevenNaam)) {
-        colResult = colCache.get(gegevenNaam)!;
-      } else {
-        colResult = await valideerTaxonMetCOL(gegevenNaam);
-        colCache.set(gegevenNaam, colResult);
-      }
+        for (const item of huidigeBatch) {
+            const gegevenNaam = item.gegevenTaxonNaam;
+            let colResult;
 
-      let formeleWaarde = "niet bekend in COL";
-      let actueleNaam: string | null = null;
+            if (colCache.has(gegevenNaam)) {
+                colResult = colCache.get(gegevenNaam)!;
+            } else {
+                colResult = await valideerTaxonMetCOL(gegevenNaam);
+                colCache.set(gegevenNaam, colResult);
+            }
 
-      if (colResult.status === "ACTUEEL" || colResult.status === "SYNONIEM") {
-        actueleNaam = colResult.actueleNaam!;
-        formeleWaarde = actueleNaam;
+            let formeleWaarde = "niet bekend in COL";
+            let actueleNaam: string | null = null;
 
-        if (colResult.status === "ACTUEEL") actueelCount++;
-        if (colResult.status === "SYNONIEM") synoniemCount++;
-      } else {
-        nietGevondenCount++;
-      }
+            if (colResult.status === "ACTUEEL" || colResult.status === "SYNONIEM") {
+                actueleNaam = colResult.actueleNaam!;
+                formeleWaarde = actueleNaam;
 
-      // 3. Update of voeg de parameter 'Formele taxonnaam' toe op het specimen object
-      if (item.formeleParamValueId) {
-        // Alleen vernieuwen als de waarde daadwerkelijk veranderd is (voorkomt onnodige historie)
-        if (item.formeleTaxonNaam !== formeleWaarde) {
-          await vernieuwParameterWaardeMetHistorie(
-            item.formeleParamValueId,
-            item.objectId,
-            PARAM_FORMELE_TAXON_NAAM_ID,
-            formeleWaarde
-          );
+                if (colResult.status === "ACTUEEL") actueelCount++;
+                if (colResult.status === "SYNONIEM") synoniemCount++;
+
+                // 💡 Haal de Nederlandse naam op via GBIF op basis van de geaccepteerde wetenschappelijke naam!
+                const nlNaam = await haalNederlandseNaamOpViaGBIF(actueleNaam);
+
+                // Opslaan of bijwerken in RelevanteTaxa
+                const bestaandTaxon = await zoekRelevantTaxonOpNaam(actueleNaam);
+                if (!bestaandTaxon) {
+                    await voegRelevantTaxonToe({
+                        taxonNaam: actueleNaam,
+                        taxonLevel: colResult.taxonRank,
+                        colIdentifier: colResult.colIdentifier,
+                        nlNaam: nlNaam, // <-- Wordt nu gevuld vanuit GBIF!
+                    });
+                } else if (nlNaam && !bestaandTaxon.nlNaam) {
+                    await updateRelevantTaxonNlNaam(bestaandTaxon.id, nlNaam);
+                }
+            }
+
+            // Parameter opslaan
+            if (item.formeleParamValueId) {
+                if (item.formeleTaxonNaam !== formeleWaarde) {
+                    await vernieuwParameterWaardeMetHistorie(
+                        item.formeleParamValueId,
+                        item.objectId,
+                        PARAM_FORMELE_TAXON_NAAM_ID,
+                        formeleWaarde
+                    );
+                }
+            } else {
+                await voegParameterWaardeToeMetBeveiliging(
+                    item.objectId,
+                    PARAM_FORMELE_TAXON_NAAM_ID,
+                    formeleWaarde,
+                    "object"
+                );
+            }
+
+            // RelevanteTaxa bijwerken
+            if (actueleNaam) {
+                const bestaandTaxon = await zoekRelevantTaxonOpNaam(actueleNaam);
+
+                if (!bestaandTaxon) {
+                    // Nieuw record invoegen
+                    await voegRelevantTaxonToe({
+                        taxonNaam: actueleNaam,
+                        taxonLevel: colResult.taxonRank,
+                        colIdentifier: colResult.colIdentifier,
+                        nlNaam: colResult.nlNaam,
+                    });
+                } else if (colResult.nlNaam && !bestaandTaxon.nlNaam) {
+                    // 💡 Bestaand record zonder NL-naam alsnog verrijken!
+                    await updateRelevantTaxonNlNaam(bestaandTaxon.id, colResult.nlNaam);
+                }
+            }
+            zojuistVerwerktIds.push(item.objectId);
+            verwerktCount++;
         }
-      } else {
-        await voegParameterWaardeToeMetBeveiliging(
-          item.objectId,
-          PARAM_FORMELE_TAXON_NAAM_ID,
-          formeleWaarde,
-          "object"
+
+        const resterend = teVerwerken.length - verwerktCount;
+
+        return NextResponse.json({
+            success: true,
+            verwerktInDezeBatch: verwerktCount,
+            totaalTeVerwerken: teVerwerken.length,
+            resterend,
+            verwerkteIds: zojuistVerwerktIds,
+            stats: {
+                actueel: actueelCount,
+                synoniem: synoniemCount,
+                nietGevonden: nietGevondenCount,
+            },
+        });
+    } catch (error) {
+        console.error("Fout tijdens taxa validatie batch:", error);
+        return NextResponse.json(
+            { success: false, error: "Interne serverfout bij valideren van taxa" },
+            { status: 500 }
         );
-      }
-
-      // 4. Werk de RelevanteTaxa tabel bij als er een actuele naam is gevonden
-      if (actueleNaam) {
-        const bestaandTaxon = await zoekRelevantTaxonOpNaam(actueleNaam);
-        if (!bestaandTaxon) {
-          await voegRelevantTaxonToe({
-            taxonNaam: actueleNaam,
-            taxonLevel: colResult.taxonRank,
-            colIdentifier: colResult.colIdentifier,
-          });
-        }
-      }
-
-      verwerktCount++;
     }
-
-    const resterend = teVerwerken.length - verwerktCount;
-
-    return NextResponse.json({
-      success: true,
-      verwerktInDezeBatch: verwerktCount,
-      totaalTeVerwerken: teVerwerken.length,
-      resterend,
-      stats: {
-        actueel: actueelCount,
-        synoniem: synoniemCount,
-        nietGevonden: nietGevondenCount,
-      },
-    });
-  } catch (error) {
-    console.error("Fout tijdens taxa validatie batch:", error);
-    return NextResponse.json(
-      { success: false, error: "Interne serverfout bij valideren van taxa" },
-      { status: 500 }
-    );
-  }
 }
